@@ -1,3 +1,5 @@
 .venv
 gemma-4-*
 video
+__pycache__/
+*.pyc
