@@ -32,7 +32,12 @@ cd Api_Server
 ## 2️⃣ 安裝套件
 
 ```bash
-pip install fastapi uvicorn bcrypt
+python -m venv .venv
+source .venv/bin/activate
+```
+
+```bash
+pip install fastapi uvicorn bcrypt deepagents tavily-python
 ```
 
 ## 3️⃣ 啟動後端
