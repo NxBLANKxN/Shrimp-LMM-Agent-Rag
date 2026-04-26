@@ -2,20 +2,12 @@ import os
 import sqlite3
 import bcrypt
 from datetime import datetime
-from dotenv import load_dotenv
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from deepagents import create_deep_agent
-from deepagents.backends import FilesystemBackend
-from langchain_openai import ChatOpenAI
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import HumanMessage
-
-load_dotenv()
 app = FastAPI()
 
 # --- 1. 配置與中介軟體 (Configuration & Middleware) ---
@@ -29,28 +21,9 @@ app.add_middleware(
 )
 
 UPLOAD_DIR = "uploads"
-if not os.path.exists(UPLOAD_DIR):
-    os.makedirs(UPLOAD_DIR)
-
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
-
-llm = ChatOpenAI(
-    base_url=os.getenv("OPENAI_BASE_URL"),
-    api_key=os.getenv("OPENAI_API_KEY"),
-    model=os.getenv("MODEL_NAME", "gpt-4o"), 
-)
-
-checkpointer = MemorySaver()
-
-# 初始化全域變數 agent
-agent = create_deep_agent(
-    model=llm,
-    backend=FilesystemBackend(root_dir=".", virtual_mode=True),
-    checkpointer=checkpointer,
-    skills=[".deepagents/skills/"],
-    memory=[".deepagents/AGENTS.md"],
-)
 
 # --- 2. 資料模型 (Pydantic Models) ---
 
@@ -66,10 +39,6 @@ class MemberResponse(BaseModel):
     bio: Optional[str] = None
     created_by: Optional[int] = None
 
-# --- AI 專用模型 ---
-class ChatInput(BaseModel):
-    message: str
-    thread_id: str
 
 # --- 3. 資料庫核心邏輯 (Database Core) ---
 
@@ -166,57 +135,6 @@ def log_event(user_id: int, action: str, t_type: str, t_id: int):
             (user_id, action, t_type, t_id)
         )
 
-# --- AI 多模態 API ---
-@app.post("/chat")
-async def chat_with_agent(
-    text: str = Form(...),
-    thread_id: str = Form(...),
-    files: List[UploadFile] = File(None)
-):
-    # 1. 確保資料夾存在
-    DATA_DIR = os.path.join(UPLOAD_DIR, "data")
-    os.makedirs(DATA_DIR, exist_ok=True)
-
-    # 初始提示詞，包含使用者的文字
-    prompt_text = text
-    uploaded_info = []
-
-    if files:
-        for file in files:
-            # 2. 儲存檔案到本地
-            file_path = os.path.join(DATA_DIR, file.filename)
-            file_data = await file.read()
-            with open(file_path, "wb") as f:
-                f.write(file_data)
-            
-            # 3. 僅記錄檔案資訊，不傳送圖片內容給模型
-            # 使用相對路徑，方便 Agent 透過 Filesystem 尋找
-            relative_path = f"uploads/data/{file.filename}"
-            file_type = "圖片" if "image" in (file.content_type or "") else "影片/檔案"
-            uploaded_info.append(f"[{file_type}已上傳，存放路徑為: {relative_path}]")
-
-    # 4. 組合最終傳給 Agent 的訊息
-    if uploaded_info:
-        # 將檔案路徑資訊附加在使用者訊息後面，作為系統提示
-        file_context = "\n".join(uploaded_info)
-        prompt_text = f"{text}\n\n系統提示：使用者已提供以下本地檔案供參考，若需分析請使用 search 技能讀取路徑：\n{file_context}"
-
-    # 5. 呼叫 agent
-    try:
-        # 注意：這裡統一傳送純文字，不傳送多模態內容 (image_url)
-        # 這樣就不會觸發模型去嘗試 GET localhost 的 URL
-        result = agent.invoke(
-            {"messages": [HumanMessage(content=prompt_text)]},
-            config={"configurable": {"thread_id": thread_id}}
-        )
-        
-        return {"reply": result["messages"][-1].content}
-
-    except Exception as e:
-        print(f"Agent Error: {e}")
-        # 這裡的錯誤捕捉能幫助你看到是否是技能調用失敗
-        raise HTTPException(status_code=500, detail=f"AI Agent 執行失敗: {str(e)}")
-
 # --- 4. 帳號 API (Auth & Users) ---
 
 @app.post("/login")
@@ -306,10 +224,4 @@ if __name__ == "__main__":
         "main:app",             # 建議用字串格式 "檔名:物件名"
         host="127.0.0.1", 
         port=8000,
-        # 關鍵參數：設定為 1GB (單位是 bytes)
-        h11_max_incomplete_event_size=2147483648, 
-        # 增加超時時間，避免大檔案傳到一半斷掉 (秒)
-        timeout_keep_alive=1200,
-        # 如果你有修改程式碼自動重啟的需求，可以加這個
-        reload=True 
     )

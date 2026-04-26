@@ -37,7 +37,7 @@ source .venv/bin/activate
 ```
 
 ```bash
-pip install fastapi uvicorn bcrypt deepagents tavily-python
+pip install fastapi uvicorn bcrypt deepagents tavily-python python-multipart
 ```
 
 ## 3️⃣ 啟動後端
