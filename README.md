@@ -71,11 +71,7 @@ cmake --build build --config Release -j $(nproc)
 使用 Hugging Face 權重啟動服務，此指令會自動下載模型：
 
 ```bash
-./build/bin/llama-server \
-  -hf bartowski/google_gemma-4-E4B-it-GGUF:Q8_0 \
-  -ngl -1 \
-  -c 64000 \
-  --port 8080
+./build/bin/llama-server -hf bartowski/google_gemma-4-E4B-it-GGUF:Q8_0 -ngl -1 -c 64000 --port 8080
 ```
 
 #### 參數說明：
