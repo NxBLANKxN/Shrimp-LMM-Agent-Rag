@@ -25,9 +25,12 @@ PORT        = int(os.getenv("PORT", 8001))
 # 物理路徑對齊
 WORKSPACE   = os.getenv("WORKSPACE","/opt/Shrimp-LMM-Agent-Rag/Agent_Server/knowledge-base")
 UPLOADS_DIR = f"{WORKSPACE}/raw/clippings"
-ROOT_DIR   = os.getenv("AGENT_DIR", "/opt/Shrimp-LMM-Agent-Rag/Agent_Server")
-AGENT_DIR   = f"{ROOT_DIR}/.deepagents/AGENTS.md"
-SKILLS_DIR  = os.getenv("SKILLS_DIR", f"{ROOT_DIR}/.deepagents/skills")
+ROOT_DIR   = "/opt/Shrimp-LMM-Agent-Rag/Agent_Server"
+AGENT_DIR   = ".deepagents/AGENTS.md"
+SKILLS_DIR  = ".deepagents/skills/"
+KNOWLEDGE_BASE_AGENT_DIR = "knowledge-base/AGENTS.md"
+
+print(f"./{AGENT_DIR}")
 
 # 確保目錄存在
 for d in [WORKSPACE, UPLOADS_DIR, SKILLS_DIR]:
@@ -44,24 +47,6 @@ llm = ChatOpenAI(
 )
 
 # ─── 工具定義 ──────────────────────────────────────────────
-@tool
-def run_shell(command: str) -> str:
-    """執行系統指令。所有操作均在 /opt/Shrimp-LMM-Agent-Rag/Agent_Server 下執行。"""
-    base_path = "/opt/Shrimp-LMM-Agent-Rag/Agent_Server"
-    try:
-        process = subprocess.run(
-            command, shell=True, cwd=base_path,
-            capture_output=True, text=True, timeout=30
-        )
-        # 即使失敗也要回傳 stderr，否則 Agent 會因為拿不到資訊而卡住（回覆空白）
-        stdout = process.stdout.strip()
-        stderr = process.stderr.strip()
-        
-        if process.returncode != 0:
-            return f"指令執行失敗 (代碼 {process.returncode})\n錯誤輸出：{stderr}\n標準輸出：{stdout}"
-        return stdout or "Success (No output)"
-    except Exception as e:
-        return f"工具執行異常: {str(e)}"
 @tool
 def read_pdf_text(file_path: str) -> str:
     """
@@ -93,32 +78,17 @@ def read_pdf_text(file_path: str) -> str:
 # ─── 初始化 Agent 核心 ──────────────────────────────────────
 checkpointer = MemorySaver()
 # 修正警告：顯式指定 virtual_mode
-backend = FilesystemBackend(root_dir="ROOT_DIR")
+backend = FilesystemBackend(root_dir=f"{ROOT_DIR}",virtual_mode=True)
 agent = create_deep_agent(
     model=llm,
     backend=backend,
-    skills=[SKILLS_DIR],
-    memory=[AGENT_DIR,"/opt/Shrimp-LMM-Agent-Rag/Agent_Server/knowledge-base/AGENTS.md"],
-    tools=[run_shell,read_pdf_text ],
-    system_prompt=(
-        "### 角色與路徑規範\n"
-        "你是 'Shrimp-AI Researcher'。你的實體根目錄為 `/opt/Shrimp-LMM-Agent-Rag/Agent_Server`。\n"
-        "當前知識庫位於 `knowledge-base/` 子目錄內。\n\n"
-
-        "### 動作協議 (必須遵守)\n"
-        "1. **全庫檢索**：針對任何關於『資料、內容、現狀』的問題，必須立即執行 `ls -R knowledge-base/` 以獲取完整結構，禁止猜測。\n"
-        "2. **寫入驗證**：執行 `write_file` 後，必須立刻調用 `run_shell` 執行 `ls -l [路徑]` 確保檔案大小大於 0。\n"
-        "3. **SHA-256 備案**：若 `sha256sum` 指令失敗，請檢查檔案是否存在，並主動回報錯誤訊息，禁止回覆空白。\n\n"
-
-        "### 輸出標準\n"
-        "- 繁體中文，術語採『中文 (English)』格式。\n"
-        "- 嚴格執行 AGENTS.md v3.0 的『閉環驗證』流程。"
-    ),
+    skills=[f"./{SKILLS_DIR}"],
+    memory=[f"./{AGENT_DIR}"],
+    tools=[read_pdf_text ],
     interrupt_on={
-        "run_shell":     {"allowed_decisions": ["approve", "edit", "reject"]},
         "write_file":    {"allowed_decisions": ["approve", "edit", "reject"]},
         "read_pdf_text": False,
-        "read_file":     True,
+        "read_file":     False,
         "ls":            False,
         "glob":          False,
         "bunx @tobilu/qmd": False, # QMD 索引自動化
