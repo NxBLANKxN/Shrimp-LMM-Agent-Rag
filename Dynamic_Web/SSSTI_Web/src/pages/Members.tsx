@@ -20,12 +20,12 @@ type Member = {
 export default function Members() {
   const [members, setMembers] = useState<Member[]>([])
   const [userRole, setUserRole] = useState<string | null>(null)
-  
+
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
   const [editingMember, setEditingMember] = useState<Member | null>(null)
   const [targetId, setTargetId] = useState<number | null>(null)
-  
+
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState({ name: "", role: "", bio: "" })
   const [file, setFile] = useState<File | null>(null)
@@ -56,7 +56,7 @@ export default function Members() {
   const handleSubmit = async () => {
     if (!form.name || !form.role) return
     setLoading(true)
-    
+
     const formData = new FormData()
     formData.append("name", form.name)
     formData.append("role", form.role)
@@ -64,10 +64,10 @@ export default function Members() {
     if (file) formData.append("file", file)
 
     try {
-      const url = editingMember 
-        ? `http://127.0.0.1:8000/members/${editingMember.id}` 
+      const url = editingMember
+        ? `http://127.0.0.1:8000/members/${editingMember.id}`
         : "http://127.0.0.1:8000/members"
-      
+
       const method = editingMember ? "PUT" : "POST"
 
       const res = await fetch(url, { method, body: formData })
@@ -89,7 +89,7 @@ export default function Members() {
         setIsDeleteConfirmOpen(false)
         fetchMembers()
       }
-    } finally { 
+    } finally {
       setLoading(false)
       setTargetId(null)
     }
@@ -103,8 +103,8 @@ export default function Members() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto animate-in fade-in duration-500">
-      
+    <div className="p-6 w-[60%] mx-auto animate-in fade-in duration-500">
+
       <div className="relative mb-12 flex items-center justify-center">
         <div className="text-center">
           <h2 className="text-3xl font-bold tracking-tight">團隊成員</h2>
@@ -151,7 +151,7 @@ export default function Members() {
       </div>
 
       {/* 新增/修改彈窗 */}
-      <Dialog open={isDialogOpen} onOpenChange={(open) => { if(!open) resetForm(); setIsDialogOpen(open); }}>
+      <Dialog open={isDialogOpen} onOpenChange={(open) => { if (!open) resetForm(); setIsDialogOpen(open); }}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -169,11 +169,11 @@ export default function Members() {
               }} />
             </div>
             <div className="w-full space-y-3">
-              <div className="space-y-1"><p className="text-[12px] font-bold text-muted-foreground uppercase">成員姓名</p><Input value={form.name} onChange={e=>setForm({...form, name:e.target.value})} /></div>
-              <div className="space-y-1"><p className="text-[12px] font-bold text-muted-foreground uppercase">職位</p><Input value={form.role} onChange={e=>setForm({...form, role:e.target.value})} /></div>
+              <div className="space-y-1"><p className="text-[12px] font-bold text-muted-foreground uppercase">成員姓名</p><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
+              <div className="space-y-1"><p className="text-[12px] font-bold text-muted-foreground uppercase">職位</p><Input value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} /></div>
               <div className="space-y-1">
                 <p className="text-[11px] font-bold text-muted-foreground uppercase flex items-center gap-1"><AlignLeft className="h-3 w-3" /> 個人簡介</p>
-                <Textarea className="h-20 resize-none" value={form.bio} onChange={e=>setForm({...form, bio:e.target.value})} />
+                <Textarea className="h-20 resize-none" value={form.bio} onChange={e => setForm({ ...form, bio: e.target.value })} />
               </div>
             </div>
           </div>

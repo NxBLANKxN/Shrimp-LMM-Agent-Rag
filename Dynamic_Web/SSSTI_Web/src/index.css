@@ -271,3 +271,80 @@
       @apply font-sans;
     }
   }
+
+  @layer components {
+
+    /* 1. 表格容器優化 */
+    .prose table {
+      display: block;
+      width: 100%;
+      overflow-x: auto;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      -webkit-overflow-scrolling: touch;
+      /* 隱藏外層溢出，確保圓角效果 */
+      border-radius: 0.75rem;
+      border: 1px solid rgba(120, 120, 120, 0.1);
+    }
+
+    /* 2. 美化捲動軸 (Scrollbar) - 讓它變細且帶有透明感 */
+    .prose table::-webkit-scrollbar {
+      height: 5px;
+      /* 橫向捲動軸高度 */
+    }
+
+    .prose table::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .prose table::-webkit-scrollbar-thumb {
+      background: rgba(59, 130, 246, 0.2);
+      /* 淡淡的藍色 */
+      border-radius: 10px;
+    }
+
+    .prose table::-webkit-scrollbar-thumb:hover {
+      background: rgba(59, 130, 246, 0.4);
+    }
+
+    /* 3. 標頭增強 */
+    .prose thead {
+      background-color: rgba(59, 130, 246, 0.08);
+      border-bottom: 2px solid rgba(59, 130, 246, 0.2);
+    }
+
+    .prose th {
+      padding: 0.75rem 1rem !important;
+      text-align: left;
+      font-weight: 600;
+      color: #3b82f6;
+      /* 標頭文字改用藍色調，增加專業感 */
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      /* 標頭英文轉大寫（如果有英文字） */
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+
+    /* 4. 儲存格優化 */
+    .prose td {
+      padding: 0.875rem 1rem !important;
+      border-bottom: 1px solid rgba(120, 120, 120, 0.08);
+      vertical-align: top;
+      font-size: 0.85rem;
+      line-height: 1.6;
+      color: inherit;
+      /* 確保儲存格內容不會縮在一起 */
+      min-width: 140px;
+    }
+
+    /* 5. 互動效果 */
+    .prose tr:nth-child(even) {
+      background-color: rgba(120, 120, 120, 0.02);
+    }
+
+    .prose tr:hover {
+      background-color: rgba(59, 130, 246, 0.04);
+      transition: background-color 0.2s ease;
+    }
+  }

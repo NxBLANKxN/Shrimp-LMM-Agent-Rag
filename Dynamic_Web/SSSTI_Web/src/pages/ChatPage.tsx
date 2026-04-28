@@ -1,251 +1,236 @@
-import React, { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Paperclip, X, Cpu, ShieldCheck, CheckCircle2 } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Send, Loader2, Paperclip, X, User, Bot, Activity } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-interface Message {
+interface Msg {
     role: "user" | "ai";
     content: string;
 }
 
 export default function ChatPage() {
-    const [messages, setMessages] = useState<Message[]>([]);
+    const [messages, setMessages] = useState<Msg[]>([]);
     const [input, setInput] = useState("");
-    const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const [isWaitingApproval, setIsWaitingApproval] = useState(false);
+    const [files, setFiles] = useState<File[]>([]);
+    const [loading, setLoading] = useState(false);
 
-    const scrollRef = useRef<HTMLDivElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const THREAD_ID = "shrimp_session_research_node"; // 固定 ID 以保持對話記憶
+    // 狀態處理：processMsg 負責接收原始訊號，displayMsg 負責平滑顯示
+    const [processMsg, setProcessMsg] = useState<string | null>(null);
+    const [displayMsg, setDisplayMsg] = useState<string | null>(null);
 
-    // ----------------------------------------------------------------------
-    // 格式化處理器：確保 Markdown 與系統訊息顯示美觀
-    // ----------------------------------------------------------------------
-    const formatMarkdown = (text: string) => {
-        if (!text) return "";
-        return text
-            .replace(/(> ⚙️)/g, '\n\n$1')
-            .replace(/(\(影片\)|\(圖片\))\s*/g, '$1\n')
-            .replace(/(\/opt\/[^\s\)]+)\)/g, '$1)\n')
-            .replace(/^(#+)\s/gm, '\n\n$1 ')
-            .replace(/\n{3,}/g, '\n\n')
-            .trimStart();
+    const buffer = useRef("");
+    const scrollRef = useRef<HTMLDivElement | null>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const lastUpdate = useRef<number>(0);
+
+    // --- 邏輯 A: 平滑顯示狀態 (解決跳太快的問題) ---
+    useEffect(() => {
+        if (!processMsg) {
+            setDisplayMsg(null);
+            return;
+        }
+        const now = Date.now();
+        const minDisplayTime = 500; // 每個狀態最少停留 0.5 秒
+
+        const update = () => {
+            setDisplayMsg(processMsg);
+            lastUpdate.current = Date.now();
+        };
+
+        if (now - lastUpdate.current > minDisplayTime) {
+            update();
+        } else {
+            const delay = minDisplayTime - (now - lastUpdate.current);
+            const timer = setTimeout(update, delay);
+            return () => clearTimeout(timer);
+        }
+    }, [processMsg]);
+
+    // --- 邏輯 B: 自動捲動 ---
+    useEffect(() => {
+        if (scrollRef.current) {
+            const viewport = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
+            if (viewport) {
+                viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
+            }
+        }
+    }, [messages, displayMsg]);
+
+    const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setInput(e.target.value);
+        if (textareaRef.current) {
+            textareaRef.current.style.height = "auto";
+            textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
+        }
     };
 
-    // 自動捲動到底部
-    useEffect(() => {
-        const scrollContainer = scrollRef.current?.querySelector('[data-radix-scroll-area-viewport]');
-        if (scrollContainer) {
-            scrollContainer.scrollTo({
-                top: scrollContainer.scrollHeight,
-                behavior: "smooth"
-            });
-        }
-    }, [messages, isLoading, isWaitingApproval]);
+    const send = async () => {
+        if ((!input.trim() && files.length === 0) || loading) return;
 
-    // ----------------------------------------------------------------------
-    // 核心串流處理邏輯 (支援普通對話與恢復執行)
-    // ----------------------------------------------------------------------
-    const processStream = async (reader: ReadableStreamDefaultReader<Uint8Array>, isResume = false) => {
-        const decoder = new TextDecoder();
-        let aiContent = isResume ? messages[messages.length - 1].content : "";
+        const text = input;
+        const currentFiles = [...files];
+
+        setInput("");
+        setFiles([]);
+        if (textareaRef.current) textareaRef.current.style.height = "auto";
+
+        setLoading(true);
+        setProcessMsg("連線中...");
+        buffer.current = "";
+
+        setMessages((prev) => [
+            ...prev,
+            { role: "user", content: text },
+            { role: "ai", content: "" },
+        ]);
 
         try {
+            const form = new FormData();
+            form.append("text", text);
+            form.append("thread_id", "default");
+            currentFiles.forEach((f) => form.append("files", f));
+
+            const res = await fetch("http://127.0.0.1:8001/chat", {
+                method: "POST",
+                body: form,
+            });
+
+            if (!res.body) throw new Error("Stream error");
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let rawData = "";
+
             while (true) {
-                const { done, value } = await reader.read();
+                const { value, done } = await reader.read();
                 if (done) break;
 
-                const chunk = decoder.decode(value, { stream: true });
-                const lines = chunk.split("\n");
+                rawData += decoder.decode(value, { stream: true });
+                let parts = rawData.split(/(?=message:|data:)/g);
 
-                for (const line of lines) {
-                    if (line.startsWith("data: ") && line !== "data: [DONE]") {
-                        try {
-                            const rawData = line.replace("data: ", "");
-                            const data = JSON.parse(rawData);
-                            
-                            // 偵測後端傳來的中斷信號
-                            if (data.interrupt) {
-                                setIsWaitingApproval(true);
-                            }
-
-                            const delta = data.choices[0].delta.content;
-                            if (delta) {
-                                aiContent += delta;
-                                setMessages((prev) => {
-                                    const updated = [...prev];
-                                    if (updated.length > 0) {
-                                        updated[updated.length - 1].content = formatMarkdown(aiContent);
-                                    }
-                                    return updated;
-                                });
-                            }
-                        } catch (e) {
-                            console.error("Parse error", e);
-                        }
+                if (parts.length > 0) {
+                    const lastPart = parts[parts.length - 1];
+                    try {
+                        const cleanTest = lastPart.replace(/^(data:|message:)\s*/i, "").trim();
+                        if (cleanTest !== "[DONE]") JSON.parse(cleanTest);
+                        rawData = "";
+                    } catch (e) {
+                        rawData = parts.pop() || "";
                     }
                 }
+
+                for (const part of parts) {
+                    const cleanJson = part.replace(/^(data:|message:)\s*/i, "").trim();
+                    if (!cleanJson || cleanJson === "[DONE]") {
+                        if (cleanJson === "[DONE]") {
+                            setLoading(false);
+                            setProcessMsg(null);
+                        }
+                        continue;
+                    }
+
+                    try {
+                        const parsed = JSON.parse(cleanJson);
+                        if (parsed.status) setProcessMsg(parsed.status);
+
+                        const content = parsed.choices?.[0]?.delta?.content || "";
+                        if (content) {
+                            buffer.current += content;
+                            setMessages((prev) => {
+                                const updated = [...prev];
+                                const lastIdx = updated.length - 1;
+                                if (lastIdx >= 0 && updated[lastIdx].role === "ai") {
+                                    updated[lastIdx] = { ...updated[lastIdx], content: buffer.current };
+                                }
+                                return updated;
+                            });
+                        }
+                    } catch (e) { }
+                }
             }
-        } finally {
-            reader.releaseLock();
+        } catch (err) {
+            setProcessMsg("連線錯誤");
+            setLoading(false);
         }
-    };
-
-    // 發送新訊息
-    const handleSend = async () => {
-        if (!input.trim() && selectedFiles.length === 0) return;
-
-        const currentInput = input;
-        const currentFiles = [...selectedFiles];
-
-        setMessages((prev) => [...prev, { role: "user", content: currentInput }, { role: "ai", content: "" }]);
-        setInput("");
-        setSelectedFiles([]);
-        setIsLoading(true);
-        setIsWaitingApproval(false);
-
-        const formData = new FormData();
-        formData.append("text", currentInput);
-        formData.append("thread_id", THREAD_ID);
-        currentFiles.forEach((file) => formData.append("files", file));
-
-        try {
-            const response = await fetch("http://127.0.0.1:8001/chat", { method: "POST", body: formData });
-            if (!response.body) return;
-            await processStream(response.body.getReader());
-        } catch (error) {
-            console.error("Agent Error:", error);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    // 授權執行 (Approve)
-    const handleApprove = async () => {
-        setIsWaitingApproval(false);
-        setIsLoading(true);
-
-        const formData = new FormData();
-        formData.append("thread_id", THREAD_ID);
-
-        try {
-            const response = await fetch("http://127.0.0.1:8001/approve", { method: "POST", body: formData });
-            if (!response.body) return;
-            // 這裡傳入 true 代表接續最後一則 AI 訊息
-            await processStream(response.body.getReader(), true);
-        } catch (error) {
-            console.error("Approval Error:", error);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    // 檔案操作
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files) {
-            setSelectedFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
-        }
-    };
-
-    const removeFile = (index: number) => {
-        setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
     };
 
     return (
-        <div className="w-full h-screen flex flex-col bg-zinc-950 text-zinc-100 font-sans antialiased overflow-hidden relative">
-            
-            {/* 背景裝飾 */}
-            <div className="absolute top-[-5%] left-[-10%] w-[600px] h-[600px] bg-blue-600/5 rounded-full blur-[140px] pointer-events-none" />
-            <div className="absolute bottom-[-5%] right-[-10%] w-[600px] h-[600px] bg-indigo-600/5 rounded-full blur-[140px] pointer-events-none" />
+        /* 外層鎖定動態視窗高度 h-dvh */
+        <div className="flex flex-col h-dvh w-full max-w-5xl mx-auto overflow-hidden bg-transparent">
 
-            {/* Header */}
-            <header className="w-full px-8 py-5 border-b border-white/[0.06] flex justify-between items-center bg-zinc-950/40 backdrop-blur-md flex-shrink-0 z-20">
-                <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-white/[0.03] rounded-2xl border border-white/[0.08]">
-                        <Cpu size={20} className="text-blue-400" />
-                    </div>
-                    <div>
-                        <p className="text-[12px] font-bold tracking-[0.3em] uppercase text-zinc-200">Shrimp_Agent</p>
-                        <p className="text-[10px] text-zinc-600 font-mono tracking-widest">PROVIDENCE_LAB_01</p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-4">
-                    {isWaitingApproval && (
-                        <div className="px-3 py-1 bg-amber-500/10 border border-amber-500/20 rounded-full flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />
-                            <p className="text-[9px] text-amber-500 font-bold uppercase tracking-widest">Awaiting Approval</p>
-                        </div>
-                    )}
-                    <div className="px-3 py-1.5 bg-blue-500/5 border border-blue-500/20 rounded-full">
-                        <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest animate-pulse">Live</p>
-                    </div>
-                </div>
-            </header>
+            {/* 訊息顯示區域 */}
+            <div className="flex-1 min-h-0 relative">
+                <ScrollArea className="h-full w-full px-4" ref={scrollRef}>
+                    <div className="flex flex-col gap-6 py-8">
 
-            {/* 訊息流區域 */}
-            <div className="flex-1 w-full min-h-0 flex flex-col items-center overflow-hidden">
-                <ScrollArea className="w-full h-full min-h-0" ref={scrollRef}>
-                    <div className="max-w-3xl mx-auto px-6 py-12 space-y-12">
                         {messages.length === 0 && (
-                            <div className="py-40 text-center opacity-20">
-                                <p className="text-sm tracking-[0.8em] uppercase font-light">Waiting_for_Sequence</p>
+                            <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in duration-700">
+                                <p className="text-2xl font-black text-zinc-300 dark:text-zinc-700 uppercase tracking-[0.2em]">Shrimp AI</p>
+                                <p className="text-zinc-500 text-xs mt-2 font-medium italic tracking-wide">Intelligent Aquaculture Expert System</p>
                             </div>
                         )}
 
-                        {messages.map((msg, index) => (
-                            <div key={index} className={`flex w-full ${msg.role === "user" ? "justify-end" : "justify-start"} animate-in fade-in slide-in-from-bottom-2 duration-500`}>
-                                <div className={`min-w-[240px] ${msg.role === "user" ? "max-w-[75%]" : "max-w-[90%]"}`}>
-                                    <p className={`text-[10px] font-bold tracking-[0.25em] uppercase mb-3 ${msg.role === "user" ? "text-right text-zinc-500" : "text-left text-blue-500/70"}`}>
-                                        {msg.role === "user" ? "Researcher" : "Agent_Analysis"}
-                                    </p>
-                                    <div className={`p-6 rounded-[24px] border transition-all duration-500 text-left ${
-                                        msg.role === "user" 
-                                        ? "bg-white/[0.03] border-white/[0.12] text-zinc-100 rounded-tr-none shadow-md" 
-                                        : "bg-blue-600/[0.04] border-blue-400/[0.2] text-blue-50 rounded-tl-none shadow-md"
+                        {messages.map((m, i) => (
+                            <div
+                                key={i}
+                                className={`flex gap-3 w-full ${m.role === "user" ? "flex-row-reverse" : "flex-row"} animate-in fade-in slide-in-from-bottom-2 duration-300`}
+                            >
+                                {/* 頭像 */}
+                                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border shadow-sm ${m.role === "user"
+                                    ? "bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700"
+                                    : "bg-blue-600 border-blue-500 text-white"
                                     }`}>
-                                        <article className="prose prose-invert prose-zinc max-w-none text-left
-                                            prose-p:leading-relaxed prose-h1:text-2xl prose-h2:text-xl 
-                                            prose-li:my-1 prose-pre:bg-black/50 prose-pre:rounded-xl">
+                                    {m.role === "user" ? <User size={16} className="text-zinc-500" /> : <Bot size={16} />}
+                                </div>
+
+                                {/* 訊息氣泡 */}
+                                <div className={`flex flex-col max-w-[85%] ${m.role === "user" ? "items-end" : "items-start"}`}>
+                                    <div className={`relative px-4 py-2.5 rounded-2xl shadow-sm transition-colors ${m.role === "user"
+                                        ? "bg-blue-600 text-white rounded-tr-none"
+                                        : "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none"
+                                        }`}>
+
+                                        {/* Markdown 渲染優化 */}
+                                        <article className={`
+                                            max-w-none break-words text-left
+                                            prose prose-sm md:prose-base
+                                            ${m.role === "user" ? "prose-invert" : "dark:prose-invert"}
+  
+                                            /* 表格專屬優化 */
+                                            prose-table:rounded-xl prose-table:border prose-table:border-zinc-200 dark:prose-table:border-zinc-800
+
+                                            prose-p:leading-relaxed
+                                            prose-pre:bg-zinc-950 prose-pre:border prose-pre:border-zinc-800
+                                            prose-code:text-blue-500 prose-code:before:content-[''] prose-code:after:content-['']
+                                        `}>
                                             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                                {msg.content || (isLoading && index === messages.length - 1 ? '...' : '')}
+                                                {m.content}
                                             </ReactMarkdown>
-                                            {msg.role === "ai" && isLoading && index === messages.length - 1 && !msg.content.includes("✅") && (
-                                                <Loader2 size={14} className="animate-spin text-blue-400 opacity-40 mt-2" />
-                                            )}
                                         </article>
+
+                                        {/* 生成中動畫 */}
+                                        {loading && i === messages.length - 1 && !m.content && (
+                                            <div className="flex gap-1.5 py-3 items-center">
+                                                <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                                                <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                                                <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" />
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
                         ))}
 
-                        {/* 中斷點控制介面 */}
-                        {isWaitingApproval && (
-                            <div className="w-full flex justify-start animate-in zoom-in-95 duration-500">
-                                <div className="bg-blue-500/10 border border-blue-500/30 p-6 rounded-[24px] flex flex-col gap-4 w-[400px] backdrop-blur-sm shadow-2xl">
-                                    <div className="flex items-center gap-3">
-                                        <ShieldCheck className="text-blue-400" size={20} />
-                                        <p className="text-sm font-bold text-blue-100 tracking-tight">系統授權請求</p>
-                                    </div>
-                                    <p className="text-xs text-blue-200/60 leading-relaxed">
-                                        Agent 偵測到需要啟動外部分析工具 (YOLO/LMM)。此操作可能消耗運算資源，是否核准執行？
+                        {/* 平滑化的 Agent 狀態顯示 */}
+                        {displayMsg && (
+                            <div className="flex items-center gap-3 px-12 animate-in fade-in slide-in-from-left-2 duration-500">
+                                <div className="flex items-center bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-full px-4 py-1.5 gap-2.5 shadow-sm max-w-[95%]">
+                                    <Activity size={12} className="text-blue-500 shrink-0" />
+                                    <p className="text-[11px] font-mono font-medium text-zinc-500 dark:text-zinc-400 truncate">
+                                        {displayMsg}
                                     </p>
-                                    <div className="flex gap-2 mt-2">
-                                        <button 
-                                            onClick={() => setIsWaitingApproval(false)}
-                                            className="flex-1 py-2.5 rounded-full text-[11px] font-bold uppercase tracking-widest text-zinc-500 hover:bg-white/5 transition-all"
-                                        >
-                                            取消
-                                        </button>
-                                        <button 
-                                            onClick={handleApprove}
-                                            className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-full text-[11px] font-bold uppercase tracking-widest text-white transition-all shadow-[0_0_20px_rgba(59,130,246,0.3)] active:scale-95 flex items-center justify-center gap-2"
-                                        >
-                                            <CheckCircle2 size={14} />
-                                            核准執行
-                                        </button>
-                                    </div>
+                                    <Loader2 size={10} className="animate-spin text-zinc-300 shrink-0" />
                                 </div>
                             </div>
                         )}
@@ -253,64 +238,51 @@ export default function ChatPage() {
                 </ScrollArea>
             </div>
 
-            {/* 底部輸入區域 */}
-            <footer className="w-full px-8 pb-8 pt-4 flex-shrink-0 z-20">
-                {selectedFiles.length > 0 && (
-                    <div className="max-w-5xl mx-auto flex flex-wrap gap-2 mb-4 px-3">
-                        {selectedFiles.map((file, i) => (
-                            <div key={i} className="flex items-center gap-2 px-3 py-2 bg-white/[0.04] border border-white/[0.1] rounded-full text-[11px] text-zinc-400">
-                                <span className="truncate max-w-[140px]">{file.name}</span>
-                                <X size={14} className="cursor-pointer hover:text-red-400 transition-colors" onClick={() => removeFile(i)} />
-                            </div>
-                        ))}
-                    </div>
-                )}
+            {/* 下方固定輸入區 */}
+            <div className="shrink-0 p-4 pt-2 border-t border-zinc-100 dark:border-zinc-800 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md">
+                <div className="max-w-4xl mx-auto relative bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xl transition-shadow focus-within:shadow-blue-500/5">
 
-                <div className={`max-w-5xl mx-auto bg-white/[0.02] border border-white/[0.08] rounded-[32px] p-2.5 transition-all duration-500 ${isWaitingApproval ? 'opacity-50 pointer-events-none' : 'focus-within:border-white/[0.15] focus-within:bg-white/[0.04]'}`}>
-                    <div className="flex items-end gap-3">
-                        <button
-                            onClick={() => fileInputRef.current?.click()}
-                            className="p-3.5 text-zinc-600 hover:text-zinc-200 transition-colors mb-0.5 rounded-full hover:bg-white/[0.04]"
-                        >
-                            <Paperclip size={22} strokeWidth={1.5} />
-                            <input type="file" multiple hidden ref={fileInputRef} onChange={handleFileChange} />
-                        </button>
+                    {/* 檔案預覽 */}
+                    {files.length > 0 && (
+                        <div className="flex flex-wrap gap-2 p-3 border-b border-zinc-50 dark:border-zinc-800">
+                            {files.map((file, idx) => (
+                                <div key={idx} className="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1 rounded-lg text-[11px] border border-zinc-200 dark:border-zinc-700 shadow-sm transition-all hover:bg-zinc-200">
+                                    <span className="truncate max-w-[150px] font-medium">{file.name}</span>
+                                    <X size={14} className="cursor-pointer hover:text-red-500 transition-colors" onClick={() => setFiles(prev => prev.filter((_, i) => i !== idx))} />
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="flex items-end gap-1 p-2">
+                        <label className="p-3 text-zinc-400 hover:text-blue-500 cursor-pointer transition-colors shrink-0">
+                            <Paperclip size={20} />
+                            <input type="file" multiple className="hidden" onChange={(e) => e.target.files && setFiles(prev => [...prev, ...Array.from(e.target.files!)])} />
+                        </label>
 
                         <textarea
-                            className="flex-1 bg-transparent border-none focus:ring-0 text-white py-3.5 px-1 resize-none max-h-36 placeholder-zinc-800 text-[15px] leading-relaxed"
-                            placeholder={isWaitingApproval ? "等待核准中..." : "在此輸入指令..."}
+                            ref={textareaRef}
                             rows={1}
                             value={input}
-                            onChange={(e) => {
-                                setInput(e.target.value);
-                                e.target.style.height = "auto";
-                                e.target.style.height = `${e.target.scrollHeight}px`;
-                            }}
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                                    e.preventDefault();
-                                    handleSend();
-                                }
-                            }}
+                            onChange={handleInput}
+                            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+                            placeholder="Message Shrimp AI..."
+                            className="flex-1 bg-transparent border-none focus:ring-0 resize-none py-3 text-[15px] max-h-40 min-h-[44px] placeholder-zinc-400"
                         />
 
                         <button
-                            onClick={handleSend}
-                            disabled={isLoading || isWaitingApproval || (!input.trim() && selectedFiles.length === 0)}
-                            className={`p-3.5 rounded-full mb-0.5 transition-all duration-300 ${
-                                (input.trim() || selectedFiles.length > 0) && !isWaitingApproval
-                                ? "bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 shadow-[0_0_20px_rgba(59,130,246,0.15)] active:scale-90"
-                                : "bg-transparent text-zinc-800"
-                            }`}
+                            onClick={send}
+                            disabled={loading || (!input.trim() && files.length === 0)}
+                            className="p-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:bg-zinc-100 dark:disabled:bg-zinc-800 disabled:text-zinc-400 transition-all shrink-0 m-1"
                         >
-                            {isLoading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+                            {loading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
                         </button>
                     </div>
                 </div>
-                <p className="mt-6 text-[9px] text-center text-zinc-800 tracking-[0.6em] uppercase font-bold opacity-40">
-                    Providence Research Lab // AI_NODE_STATUS: OK
+                <p className="text-[10px] text-center text-zinc-400 py-2 uppercase tracking-[0.2em] opacity-50 font-bold">
+                    Terminal System v2.0
                 </p>
-            </footer>
+            </div>
         </div>
     );
 }

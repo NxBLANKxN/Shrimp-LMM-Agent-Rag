@@ -1,41 +1,157 @@
-# AGENTS.md (v3.0 - 實體路徑與問題驅動強化版)
+# AGENTS.md
 
-## 1. 專案概要 (Project Overview)
-- **專案名稱**: Shrimp-LMM-Agent-Rag
-- **核心邏輯**: **問題導向之全庫檢索 (Question-Driven Knowledge Retrieval)**。
-- **原則**: Agent 嚴禁使用相對路徑，必須將實體目錄視為唯一事實。遵循「先全庫掃描、後精準執行、完工必驗」的硬性規章。
+## 🧠 System Identity
 
-## 2. 核心決策流 (The Core Loop) —— **動態路徑與強制檢索**
+智慧蝦隻養殖 AI 知識系統
 
-### 階段一：問題解構與全局檢索 (Global Search & Path Alignment)
-- **行動**：
-    1. 讀取本文件 `AGENTS.md` 確立操作邊界。
-    2. **強制執行絕對路徑掃描**：禁止使用內建 `ls` 工具。必須調用 `run_shell` 執行：
-       `ls -R /opt/Shrimp-LMM-Agent-Rag/Agent_Server/knowledge-base/`
-- **目的**：獲取知識庫的「實時快照」，解決內建工具因路徑偏移導致回傳空結果 `[]` 的問題。
-- **路徑指引**：
-    - 涉及行為分析 $\rightarrow$ 檢索 `raw/observations/`。
-    - 涉及文獻研讀 $\rightarrow$ 檢索 `raw/articles/` (必須調用 `read_pdf_text`)。
-    - 涉及操作紀錄 $\rightarrow$ 檢索 `wiki/log.md`。
+---
 
-### 階段二：任務映射與動作執行 (Task Mapping & Action)
-根據階段一掃描到的**實體檔案列表**，自動切換至對應動作：
-- **[情境 A：數據處理]**：若偵測到新的 `.json` $\rightarrow$ 執行數據分析並更新 `wiki/concepts/`。
-- **[情境 B：知識轉化]**：發現 PDF $\rightarrow$ 執行 `read_pdf_text` $\rightarrow$ 計算 SHA-256 (使用 `run_shell`) $\rightarrow$ 寫入 `wiki/sources/`。
-- **[情境 C：路徑修復]**：若 `ls` 回傳失敗，Agent 必須回報 `/opt` 權限狀態，嚴禁回覆空白或靜默重試。
+## 📦 Knowledge Structure
 
-### 階段三：日誌同步與寫入驗證 (Live Logging & Verification)
-- **行動**：
-    1. 執行過程中任何關鍵動作（如計算雜湊、提取摘要）必須寫入 `wiki/log.md`。
-    2. **寫入即驗證**：使用 `write_file` 後，必須立刻執行 `run_shell(command="ls -l [絕對路徑]")` 獲取檔案大小，證明寫入成功。
+知識庫位置：knowledge-base/
 
-### 階段四：閉環驗證與標準校對 (Final Standards)
-- **行動**：回對 `AGENTS.md` 檢查產出：
-    - **事實對齊**：結論是否確實引用了 `raw/` 內的數據？
-    - **術語標準**：專業術語是否符合 `中文 (English)` 格式？
-    - **結構標準**：引用是否皆為 `[[wikilink-format]]`？
+系統包含三層：
 
-## 3. 實體路徑規範 (Path Standards)
-- **根目錄 (Root)**: `/opt/Shrimp-LMM-Agent-Rag/Agent_Server/`
-- **知識庫 (KB)**: `knowledge-base/`
-- **強制規範**: 禁止操作上述路徑以外的檔案。
+### 1. raw/
+- 人類提供的原始資料
+- LLM 僅可讀取
+- 不可修改
+
+---
+
+### 2. wiki/
+- 系統核心知識庫
+- LLM 可讀寫
+- 包含：
+  - concepts（概念）
+  - entities（實體）
+  - sources（來源）
+  - synthesis（推理結果）
+  - index（索引）
+  - log（紀錄）
+
+---
+
+### 3. outputs/
+- 系統輸出結果
+- 包含查詢與分析報告
+
+---
+
+## 🔁 三種操作模式（核心行為）
+
+---
+
+## 🟢 INGEST（匯入模式）
+
+觸發條件：
+- 使用者上傳資料
+- 或輸入 ingest / 攝入 / 處理這個
+
+### 行為流程：
+
+1. 讀取 raw 資料（只讀）
+2. 判斷資料類型
+3. 解析內容
+4. 建立或更新 wiki/sources
+5. 抽取概念與實體
+6. 更新相關 concepts / entities
+7. 更新 index
+8. 記錄 log
+
+---
+
+### 規則：
+
+- 概念必須統一名稱
+- 已存在 concept → 更新，不重建
+- 所有知識必須可追溯來源
+
+---
+
+## 🔵 QUERY（查詢模式）
+
+觸發條件：
+- 使用者提問
+- 或 query / 根據知識庫
+
+### 行為流程：
+
+1. 搜尋 wiki 相關內容
+2. 讀取前 5 個最相關項目
+3. 整合內容
+4. 產生答案
+
+---
+
+### 規則：
+
+- 必須基於 wiki
+- 必須引用來源
+- 可跨 concept 推理
+- 可回寫新知識（若有價值）
+
+---
+
+## 🟣 LINT（健康檢查）
+
+觸發條件：
+- lint / 檢查 / 健康
+
+### 行為：
+
+- 檢查孤立概念
+- 檢查矛盾定義
+- 檢查缺失連結
+- 檢查過期內容
+
+---
+
+### 輸出：
+
+寫入 outputs/lint.md
+
+---
+
+## 🟡 REFLECT（反思模式）
+
+觸發條件：
+- reflect / 綜合分析
+
+### 行為：
+
+- 分析跨概念關聯
+- 找出知識缺口
+- 找出矛盾
+- 找出隱性模式
+
+---
+
+### 輸出：
+
+寫入 wiki/synthesis/
+
+---
+
+## 📌 系統規則
+
+- raw/ 永遠不可修改
+- wiki/log.md 只能追加
+- 所有知識必須可追溯
+- 所有變更必須記錄
+
+---
+
+## 🌏 語言規則
+
+- 預設繁體中文
+- concept 使用英文 slug
+- aliases 支援中英文
+
+---
+
+## 🧠 核心原則
+
+本系統是一個：
+
+> 可持續演進的知識圖譜系統（Living Knowledge System）

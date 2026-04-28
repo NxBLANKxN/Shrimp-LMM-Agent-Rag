@@ -1,7 +1,7 @@
 import json
 import os
 import shutil
-import subprocess
+import mimetypes
 import fitz
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -18,25 +18,46 @@ from langgraph.types import Command
 from deepagents import create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
 
-# ─── 設定區 ────────────────────────────────────────────────
-LLAMA_URL   = os.getenv("OPENAI_BASE_URL",   "http://localhost:8080/v1")
-LLAMA_MODEL = os.getenv("MODEL_NAME", "local-model")
-PORT        = int(os.getenv("PORT", 8001))
-# 物理路徑對齊
-WORKSPACE   = os.getenv("WORKSPACE","/opt/Shrimp-LMM-Agent-Rag/Agent_Server/knowledge-base")
-UPLOADS_DIR = f"{WORKSPACE}/raw/clippings"
-ROOT_DIR   = "/opt/Shrimp-LMM-Agent-Rag/Agent_Server"
+
+# ─────────────────────────────────────────────
+# 基本設定
+# ─────────────────────────────────────────────
+LLAMA_URL   = "http://localhost:8080/v1"
+LLAMA_MODEL = "gemma-4-E4B-it-GGUF:Q8_0"
+PORT        = 8001
+
+ROOT_DIR    = "/opt/Shrimp-LMM-Agent-Rag/Agent_Server"
+WORKSPACE   = f"{ROOT_DIR}/knowledge-base"
+
+RAW_DIR     = f"{WORKSPACE}/raw"
+
 AGENT_DIR   = ".deepagents/AGENTS.md"
 SKILLS_DIR  = ".deepagents/skills/"
-KNOWLEDGE_BASE_AGENT_DIR = "knowledge-base/AGENTS.md"
 
-print(f"./{AGENT_DIR}")
 
-# 確保目錄存在
-for d in [WORKSPACE, UPLOADS_DIR, SKILLS_DIR]:
-    Path(d).mkdir(parents=True, exist_ok=True)
+# raw 子資料夾（自動分類）
+UPLOAD_MAP = {
+    "pdf":        f"{RAW_DIR}/articles",
+    "image":      f"{RAW_DIR}/images",
+    "video":      f"{RAW_DIR}/videos",
+    "audio":      f"{RAW_DIR}/audio",
+    "excel":      f"{RAW_DIR}/datasets",
+    "csv":        f"{RAW_DIR}/datasets",
+    "doc":        f"{RAW_DIR}/documents",
+    "code":       f"{RAW_DIR}/notes",
+    "text":       f"{RAW_DIR}/notes",
+    "unknown":    f"{RAW_DIR}/clippings",
+}
 
-# ─── llama.cpp → LangChain ChatOpenAI ─────────────────────
+
+# 建立資料夾
+for path in UPLOAD_MAP.values():
+    os.makedirs(path, exist_ok=True)
+
+
+# ─────────────────────────────────────────────
+# LLM
+# ─────────────────────────────────────────────
 llm = ChatOpenAI(
     base_url=LLAMA_URL,
     api_key="not-needed",
@@ -46,117 +67,233 @@ llm = ChatOpenAI(
     streaming=True,
 )
 
-# ─── 工具定義 ──────────────────────────────────────────────
+
+# ─────────────────────────────────────────────
+# 工具
+# ─────────────────────────────────────────────
 @tool
 def read_pdf_text(file_path: str) -> str:
     """
-    讀取指定路徑的 PDF 檔案並提取純文字內容。
-    適用於學術文獻 (articles/) 與研究報告的深度分析。
+    讀取 PDF 純文字內容。
     """
-    path = Path(file_path)
-    # 如果是相對路徑，則補上 AGENT_DIR
-    if not path.is_absolute():
-        path = Path(AGENT_DIR) / file_path
 
-    if not path.exists():
-        return f"錯誤：找不到檔案 {file_path}"
-    
+    path = f"{ROOT_DIR}/{file_path}"
+
     try:
         text = ""
         with fitz.open(path) as doc:
             for page in doc:
                 text += page.get_text()
-        
+
         if not text.strip():
-            return "警告：該 PDF 可能為掃描檔或無可提取文字。"
-            
-        return f"--- PDF 內容開始 ---\n{text}\n--- PDF 內容結束 ---"
+            return "PDF 無法提取文字，可能是掃描檔"
+
+        return text[:15000]
+
     except Exception as e:
-        return f"讀取 PDF 時發生錯誤：{str(e)}"
+        return str(e)
 
 
-# ─── 初始化 Agent 核心 ──────────────────────────────────────
+# ─────────────────────────────────────────────
+# 檔案分類器
+# ─────────────────────────────────────────────
+def classify_file(filename: str) -> str:
+    ext = Path(filename).suffix.lower()
+
+    if ext == ".pdf":
+        return "pdf"
+
+    elif ext in [".jpg", ".jpeg", ".png", ".bmp", ".webp"]:
+        return "image"
+
+    elif ext in [".mp4", ".avi", ".mov", ".mkv"]:
+        return "video"
+
+    elif ext in [".mp3", ".wav", ".m4a"]:
+        return "audio"
+
+    elif ext in [".xlsx", ".xls"]:
+        return "excel"
+
+    elif ext == ".csv":
+        return "csv"
+
+    elif ext in [".doc", ".docx", ".ppt", ".pptx"]:
+        return "doc"
+
+    elif ext in [".py", ".js", ".ts", ".java", ".cpp", ".php", ".html", ".css"]:
+        return "code"
+
+    elif ext in [".txt", ".md", ".json", ".yaml", ".yml"]:
+        return "text"
+
+    return "unknown"
+
+
+def save_upload_file(upload: UploadFile) -> str:
+    file_type = classify_file(upload.filename)
+    target_dir = UPLOAD_MAP[file_type]
+
+    dest = Path(target_dir) / upload.filename
+
+    with dest.open("wb") as out:
+        shutil.copyfileobj(upload.file, out)
+
+    relative_path = str(dest).replace(ROOT_DIR + "/", "")
+    return relative_path
+
+
+# ─────────────────────────────────────────────
+# Agent
+# ─────────────────────────────────────────────
 checkpointer = MemorySaver()
-# 修正警告：顯式指定 virtual_mode
-backend = FilesystemBackend(root_dir=f"{ROOT_DIR}",virtual_mode=True)
+
+backend = FilesystemBackend(
+    root_dir=ROOT_DIR,
+    virtual_mode=True
+)
+
 agent = create_deep_agent(
     model=llm,
     backend=backend,
+    system_prompt="""
+你是一位專業智慧蝦隻養殖 AI 助手。
+
+規則：
+1. 使用者上傳的檔案已自動分類到 raw/ 對應資料夾
+2. 如果是 PDF，可使用 read_pdf_text
+3. 根據使用者語言回答（預設繁體中文）
+4. 協助分析蝦病、水質、養殖、研究資料
+""",
     skills=[f"./{SKILLS_DIR}"],
     memory=[f"./{AGENT_DIR}"],
-    tools=[read_pdf_text ],
+    tools=[read_pdf_text],
     interrupt_on={
-        "write_file":    {"allowed_decisions": ["approve", "edit", "reject"]},
-        "read_pdf_text": False,
-        "read_file":     False,
-        "ls":            False,
-        "glob":          False,
-        "bunx @tobilu/qmd": False, # QMD 索引自動化
+        "write_file": {
+            "allowed_decisions": ["approve", "edit", "reject"]
+        }
     },
     checkpointer=checkpointer,
 )
 
-# ─── FastAPI 生命週期與服務 ──────────────────────────────────
+
+# ─────────────────────────────────────────────
+# FastAPI
+# ─────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: 替代原本的 @app.on_event("startup")
-    print(f"\n🚀 Shrimp Agent Server 啟動中")
-    print(f"   - Workspace: {WORKSPACE}\n   - Agent Dir: {AGENT_DIR}")
+    print("🚀 Shrimp Agent Server 啟動")
     yield
-    # Shutdown: 可以在此處清理資源
-    print("\n🛑 Shrimp Agent Server 已關閉")
+    print("🛑 Server 關閉")
 
-app = FastAPI(title="Deep Agent API", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# ─── SSE 工具與路由 (保持原邏輯) ──────────────────────────────
-def sse_token(text: str) -> dict:
-    return {"data": json.dumps({"choices": [{"delta": {"content": text}}]}, ensure_ascii=False)}
+app = FastAPI(title="Shrimp DeepAgent", lifespan=lifespan)
 
-def sse_interrupt(thread_id: str, calls: list) -> dict:
-    return {"data": json.dumps({"interrupt": True, "thread_id": thread_id, "calls": calls}, ensure_ascii=False)}
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-async def stream_agent(input_data, config: dict):
-    thread_id = config["configurable"]["thread_id"]
-    async for event in agent.astream_events(input_data, config=config, version="v2"):
+
+# ─────────────────────────────────────────────
+# SSE
+# ─────────────────────────────────────────────
+def sse_token(text: str = "", status: str = None):
+    """
+    支援同時發送內容與狀態
+    """
+    payload = {
+        "choices": [{"delta": {"content": text}}]
+    }
+    if status:
+        payload["status"] = status  # 前端會檢查這個欄位
+        
+    return {
+        "data": json.dumps(payload, ensure_ascii=False)
+    }
+
+
+async def stream_agent(input_data, config):
+    async for event in agent.astream_events(
+        input_data,
+        config=config,
+        version="v2"
+    ):
         kind = event["event"]
-        if kind == "on_chat_model_stream":
+        # 獲取事件名稱，例如：read_pdf_text, ChatOpenAI, 或 node 名稱
+        name = event.get("name", "Unknown")
+
+        # 1. 捕捉工具執行
+        if kind == "on_tool_start":
+            # 直接顯示原始工具名稱
+            yield sse_token(status=f"Executing tool: {name}...")
+
+        # 2. 捕捉模型思考與處理
+        elif kind == "on_chat_model_start":
+            yield sse_token(status=f"Model starting: {name}...")
+
+        # 3. 捕捉模型吐字
+        elif kind == "on_chat_model_stream":
             chunk = event["data"]["chunk"]
-            if chunk.content: yield sse_token(chunk.content)
-        elif kind == "on_tool_start":
-            yield sse_token(f"\n\n> ⚙️ 執行工具 `{event['name']}`\n")
-        elif kind == "on_interrupt":
-            iv = event["data"]["value"]
-            calls = [{"name": a["name"], "args": a.get("args", {}), "allowed_decisions": ["approve", "reject"]} for a in iv.get("action_requests", [])]
-            yield sse_interrupt(thread_id, calls)
-            return
+            if chunk.content:
+                # 這裡 status 保持顯示模型正在回應，並帶上原始模型名稱
+                yield sse_token(text=chunk.content, status=f"Streaming from {name}...")
 
+        # 4. (選配) 捕捉節點切換 - 如果您想看 LangGraph 的節點跳轉
+        elif kind == "on_chain_start":
+            yield sse_token(status=f"Entering: {name}")
+
+# ─────────────────────────────────────────────
+# Chat API
+# ─────────────────────────────────────────────
 @app.post("/chat")
-async def chat(text: str = Form(""), thread_id: str = Form("default"), files: list[UploadFile] = File(default=[])):
+async def chat(
+    text: str = Form(""),
+    thread_id: str = Form("default"),
+    files: list[UploadFile] = File(default=[])
+):
     config = {"configurable": {"thread_id": thread_id}}
+
+    uploaded_paths = []
+
     for f in files:
-        dest = Path(UPLOADS_DIR) / f.filename
-        with dest.open("wb") as out: shutil.copyfileobj(f.file, out)
-    
-    prompt = text + (f"\n\n已上傳檔案：{', '.join([f.filename for f in files])}" if files else "")
+        path = save_upload_file(f)
+        uploaded_paths.append(path)
+
+    prompt = text
+
+    if uploaded_paths:
+        prompt += "\n\n已上傳檔案：\n" + "\n".join(uploaded_paths)
+
     async def event_gen():
-        async for item in stream_agent({"messages": [{"role": "user", "content": prompt}]}, config): yield item
+        async for item in stream_agent(
+            {"messages": [{"role": "user", "content": prompt}]},
+            config
+        ):
+            yield item
+
         yield {"data": "[DONE]"}
+
     return EventSourceResponse(event_gen())
 
-@app.post("/approve")
-async def approve(thread_id: str = Form(...), decision: str = Form("approve")):
-    config = {"configurable": {"thread_id": thread_id}}
-    dec_type = "approve" if decision == "approve" else "reject"
-    async def event_gen():
-        async for item in stream_agent(Command(resume={"decisions": [{"type": dec_type}]}), config): yield item
-        yield {"data": "[DONE]"}
-    return EventSourceResponse(event_gen())
 
+# ─────────────────────────────────────────────
+# Status
+# ─────────────────────────────────────────────
 @app.get("/status")
 def status():
-    return {"workspace": WORKSPACE, "agent_dir": AGENT_DIR, "llama_url": LLAMA_URL}
+    return {
+        "workspace": WORKSPACE,
+        "raw_dir": RAW_DIR,
+        "llama": LLAMA_URL
+    }
 
+
+# ─────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("agent:app", host="0.0.0.0", port=PORT, reload=True)
