@@ -11,16 +11,21 @@ llm-wiki 工具集
   - run_lint         : 執行 scripts/lint.py，回傳健康報告
 """
 
+import re
+import sys
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
 from langchain_core.tools import tool
 
-# ── 路徑常數（相對於 agent.py 的工作目錄）──────────────────────────
-WIKI_ROOT = Path("./knowledge-base/wiki")
-LOG_FILE  = WIKI_ROOT / "log.md"
-LINT_SCRIPT = Path("./knowledge-base/scripts/lint.py")
+# ── 路徑常數（以本檔位置推導，不依賴 process cwd）────────────────────
+# wiki_tools.py 位於 Agent_Server/.deepagents/tools/
+_AGENT_SERVER = Path(__file__).resolve().parents[2]
+_KB_ROOT = _AGENT_SERVER / "knowledge-base"
+WIKI_ROOT = _KB_ROOT / "wiki"
+LOG_FILE = WIKI_ROOT / "log.md"
+LINT_SCRIPT = _KB_ROOT / "scripts" / "lint.py"
 
 
 def _resolve(relative_path: str) -> Path:
@@ -71,8 +76,13 @@ def list_wiki_files(subdir: str = "") -> str:
             return f"❌ 目錄不存在：wiki/{subdir}"
 
         lines = []
+        root = WIKI_ROOT.resolve()
         for f in sorted(base.rglob("*.md")):
-            rel = f.relative_to(WIKI_ROOT)
+            try:
+                rel = f.resolve().relative_to(root)
+            except Exception:
+                # Windows 路徑大小寫/分隔符差異時，保底改用檔名
+                rel = f.name
             try:
                 first_line = f.read_text(encoding="utf-8").splitlines()[0].lstrip("# ").strip()
             except Exception:
@@ -141,8 +151,8 @@ def append_log(action: str, title: str, detail: str = "") -> str:
 @tool
 def search_wiki(keyword: str, max_results: int = 20) -> str:
     """
-    在 wiki/ 目錄的所有 Markdown 檔案中，用 grep 搜尋關鍵字（大小寫不敏感）。
-    適合 Query 前定位相關頁面，無需 embedding 或向量資料庫。
+    在 wiki/ 目錄的所有 Markdown 檔案中，以純 Python 進行大小寫不敏感搜尋。
+    適合 Query 前定位相關頁面，避免依賴系統 grep。
 
     Args:
         keyword:     要搜尋的關鍵字或短語，例如 '生物絮' 或 'BFT'
@@ -152,22 +162,23 @@ def search_wiki(keyword: str, max_results: int = 20) -> str:
         每行格式為 `wiki/<file>:<line_num>: <matched_line>`
     """
     try:
-        result = subprocess.run(
-            ["grep", "-rni", "--include=*.md", keyword, str(WIKI_ROOT)],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 1:
+        pattern = re.compile(re.escape(keyword), re.IGNORECASE)
+        root = WIKI_ROOT.resolve()
+        matches: list[str] = []
+        for f in sorted(root.rglob("*.md")):
+            try:
+                rel = f.resolve().relative_to(root)
+                lines = f.read_text(encoding="utf-8").splitlines()
+            except Exception:
+                continue
+            for i, line in enumerate(lines, start=1):
+                if pattern.search(line):
+                    matches.append(f"wiki/{rel}:{i}: {line.strip()}")
+                    if len(matches) >= max_results:
+                        return "\n".join(matches)
+        if not matches:
             return f"🔍 在 wiki 中找不到關鍵字：{keyword}"
-        if result.returncode != 0:
-            return f"grep 執行失敗：{result.stderr.strip()}"
-
-        lines = result.stdout.strip().splitlines()[:max_results]
-        # 將絕對路徑縮短為相對路徑
-        cleaned = []
-        for line in lines:
-            cleaned.append(line.replace(str(WIKI_ROOT) + "/", "wiki/"))
-        return "\n".join(cleaned)
+        return "\n".join(matches)
     except Exception as e:
         return f"search_wiki 發生錯誤：{e}"
 
@@ -188,9 +199,10 @@ def run_lint(_: str = "") -> str:
             return f"❌ 找不到 lint 腳本：{LINT_SCRIPT}"
 
         result = subprocess.run(
-            ["python", str(LINT_SCRIPT)],
+            [sys.executable, str(LINT_SCRIPT.resolve())],
             capture_output=True,
             text=True,
+            cwd=str(_AGENT_SERVER),
         )
         output = result.stdout + result.stderr
         return output.strip() if output.strip() else "✅ Lint 完成，無輸出（可能已寫入 lint.md）"

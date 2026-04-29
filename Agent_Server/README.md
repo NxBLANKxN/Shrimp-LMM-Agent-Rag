@@ -19,7 +19,7 @@
 依照 `AGENTS.md` 規範，系統嚴格區分數據層級：
 
 ```text
-/opt/Shrimp-LMM-Agent-Rag/Agent_Server
+<project-root>/Agent_Server
 ├── .deepagents/                        # 🤖 Agent 行為定義核心
 │   ├── AGENTS.md                       # 行為管理規範
 │   └── skills/                         # 封裝技能組 (含實作腳本)
@@ -39,7 +39,6 @@
 ├── README.md                           # 本說明文件
 ├── agent.py                            # 系統主程式
 └── knowledge-base/                     # 🧠 全量數據與知識核心
-    ├── AGENTS.md                       # 知識管理規範
     ├── README.md                       # 知識庫索引說明
     ├── output/                         # 系統檢測報告
     │   ├── lint.md                     # Wiki 鏈結檢查結果
@@ -126,7 +125,7 @@ python3.11 -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ---
 
 ## ⚖️ 行為契約 (Behavioral Contract)
-本專案的所有行為受 `/opt/Shrimp-LMM-Agent-Rag/Agent_Server/AGENTS.md` 约束。Agent 在執行任何任務前，必須先檢索知識庫以獲取上下文。
+本專案的所有行為受 `Agent_Server/.deepagents/AGENTS.md` 約束。Agent 在執行任何任務前，必須先檢索知識庫以獲取上下文。
 
 ---
 

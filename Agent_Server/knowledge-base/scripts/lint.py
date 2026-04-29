@@ -7,7 +7,8 @@ from pathlib import Path
 from datetime import datetime
 
 # ─── 路徑設定 ──────────────────────────────────────────────
-BASE_DIR = Path("/opt/Shrimp-LMM-Agent-Rag/Agent_Server/knowledge-base")
+# 以腳本檔案位置推導 knowledge-base 根目錄，避免硬編碼 /opt 路徑
+BASE_DIR = Path(__file__).resolve().parents[1]
 WIKI_DIR = BASE_DIR / "wiki"
 RAW_DIR = BASE_DIR / "raw"
 OUTPUT_DIR = BASE_DIR / "output"

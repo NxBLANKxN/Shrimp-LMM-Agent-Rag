@@ -172,6 +172,15 @@ knowledge-base/
 4. **交叉連結是義務**：任何新頁面都必須與相關 concept/entity/source 頁互相連結
 5. **index.md 必須保持最新**：每次 Ingest 完都要更新 index.md
 
+### INGEST 完成定義（避免「只讀 PDF、目錄仍空」）
+
+當使用者要求攝取／寫入／依 ingest 流程處理時，**同一回合結束前**至少須：
+
+- 成功 `write_wiki_file` 建立或更新 **`sources/<slug>.md`**（每個處理的來源一份；可再擴充 concepts／entities）
+- 成功 **`append_log`**（`ingest`）
+
+僅輸出摘要、僅呼叫 `read_pdf_text`／`sha256_file`、或只請使用者「確認後再寫」**不算** ingest 完成（除非使用者明確只要預覽）。細節以 `skills/wiki-ingest/SKILL.md` Step 3 分岔為準。
+
 ---
 
 ## 子代理設計說明

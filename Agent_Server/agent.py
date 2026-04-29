@@ -2,9 +2,11 @@ import json
 import os
 import shutil
 import mimetypes
+import hashlib
 import fitz
 from pathlib import Path
 from contextlib import asynccontextmanager
+from urllib import request, error
 
 from fastapi import FastAPI, Form, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,7 +22,9 @@ from deepagents.backends.filesystem import FilesystemBackend
 
 # llm-wiki 工具集（透過 sys.path 插入，避免 relative import 問題）
 import sys as _sys
-_sys.path.insert(0, "/opt/Shrimp-LMM-Agent-Rag/Agent_Server/.deepagents/tools")
+BASE_DIR = Path(__file__).resolve().parent
+TOOLS_DIR = BASE_DIR / ".deepagents" / "tools"
+_sys.path.insert(0, str(TOOLS_DIR))
 from wiki_tools import (
     read_wiki_file,
     list_wiki_files,
@@ -43,10 +47,12 @@ LLAMA_URL   = "http://localhost:8080/v1"
 LLAMA_MODEL = "gemma-4-E4B-it-GGUF:Q8_0"
 PORT        = 8001
 
-ROOT_DIR    = "/opt/Shrimp-LMM-Agent-Rag/Agent_Server"
-WORKSPACE   = f"{ROOT_DIR}/knowledge-base"
+ROOT_DIR    = str(BASE_DIR)
+WORKSPACE   = str(BASE_DIR / "knowledge-base")
 
-RAW_DIR     = f"{WORKSPACE}/raw"
+RAW_DIR     = str(Path(WORKSPACE) / "raw")
+WIKI_DIR    = Path(WORKSPACE) / "wiki"
+OUTPUT_DIR  = Path(WORKSPACE) / "output"
 
 AGENT_DIR   = ".deepagents/AGENTS.md"
 SKILLS_DIR  = ".deepagents/skills/"
@@ -71,43 +77,132 @@ UPLOAD_MAP = {
 for path in UPLOAD_MAP.values():
     os.makedirs(path, exist_ok=True)
 
+# 建立 wiki/ 與 output/ 必要骨架，避免 ingest 寫入時路徑缺失
+for path in [
+    WIKI_DIR / "sources",
+    WIKI_DIR / "concepts",
+    WIKI_DIR / "entities",
+    WIKI_DIR / "synthesis",
+    OUTPUT_DIR,
+]:
+    path.mkdir(parents=True, exist_ok=True)
+
 
 # ─────────────────────────────────────────────
 # LLM
 # ─────────────────────────────────────────────
-llm = ChatOpenAI(
-    base_url=LLAMA_URL,
-    api_key="not-needed",
-    model=LLAMA_MODEL,
-    temperature=0.0,
-    max_tokens=200000,
-)
+def _local_llm_available(base_url: str, timeout_sec: float = 1.5) -> bool:
+    """
+    檢查本地 OpenAI 相容 API 是否可連線。
+    """
+    url = f"{base_url.rstrip('/')}/models"
+    try:
+        req = request.Request(url, method="GET")
+        with request.urlopen(req, timeout=timeout_sec) as resp:
+            return 200 <= resp.status < 500
+    except (error.URLError, error.HTTPError, TimeoutError):
+        return False
+
+
+def _build_llm() -> ChatOpenAI:
+    """
+    本地優先，若本地不可用則自動切換到雲端。
+    雲端配置使用環境變數：
+    - OPENAI_BASE_URL
+    - OPENAI_API_KEY
+    - MODEL_NAME
+    """
+    local_enabled = os.getenv("LOCAL_LLM_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
+    if local_enabled and _local_llm_available(LLAMA_URL):
+        print(f"[LLM] local enabled: {LLAMA_URL} | model={LLAMA_MODEL}")
+        return ChatOpenAI(
+            base_url=LLAMA_URL,
+            api_key="not-needed",
+            model=LLAMA_MODEL,
+            temperature=0.0,
+            max_tokens=200000,
+        )
+
+    cloud_base = os.getenv("OPENAI_BASE_URL", "").strip()
+    cloud_key = os.getenv("OPENAI_API_KEY", "").strip()
+    cloud_model = os.getenv("MODEL_NAME", "").strip()
+
+    if not (cloud_base and cloud_key and cloud_model):
+        raise RuntimeError(
+            "本地 LLM 無法連線，且雲端配置不完整。請設定 OPENAI_BASE_URL、OPENAI_API_KEY、MODEL_NAME。"
+        )
+
+    print(f"[LLM] fallback to cloud: {cloud_base} | model={cloud_model}")
+    return ChatOpenAI(
+        base_url=cloud_base,
+        api_key=cloud_key,
+        model=cloud_model,
+        temperature=0.0,
+        max_tokens=200000,
+    )
+
+
+llm = _build_llm()
 
 
 # ─────────────────────────────────────────────
 # 工具
 # ─────────────────────────────────────────────
 @tool
-def read_pdf_text(file_path: str) -> str:
+def read_pdf_text(file_path: str, max_chars: int = 12000, start_offset: int = 0) -> str:
     """
-    讀取 PDF 純文字內容。
+    讀取 PDF 純文字內容（支援分段讀取，避免上下文過長）。
     """
-
-    path = f"{ROOT_DIR}/{file_path}"
+    normalized = file_path.lstrip("/\\")
+    path = Path(ROOT_DIR) / normalized
 
     try:
+        if not path.exists():
+            return f"找不到檔案：{normalized}"
+
         text = ""
-        with fitz.open(path) as doc:
+        with fitz.open(str(path)) as doc:
             for page in doc:
                 text += page.get_text()
 
         if not text.strip():
             return "PDF 無法提取文字，可能是掃描檔"
+        if max_chars <= 0:
+            return "參數錯誤：max_chars 必須大於 0"
+        if start_offset < 0:
+            return "參數錯誤：start_offset 不可小於 0"
 
-        return text
+        end = start_offset + max_chars
+        segment = text[start_offset:end]
+        total_len = len(text)
+        truncated = end < total_len
+        return (
+            f"[pdf_segment file={normalized} start={start_offset} end={min(end, total_len)} "
+            f"total={total_len} truncated={str(truncated).lower()}]\n{segment}"
+        )
 
     except Exception as e:
         return str(e)
+
+
+@tool
+def sha256_file(file_path: str) -> str:
+    """
+    計算檔案 SHA-256，供 ingest 流程寫入 source frontmatter。
+    """
+    normalized = file_path.lstrip("/\\")
+    path = Path(ROOT_DIR) / normalized
+    try:
+        if not path.exists():
+            return f"找不到檔案：{normalized}"
+
+        hasher = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+    except Exception as e:
+        return f"計算 SHA-256 失敗：{str(e)}"
 
 @tool
 def overwrite_file(file_path: str, content: str) -> str:
@@ -122,7 +217,7 @@ def overwrite_file(file_path: str, content: str) -> str:
     Returns:
         str: 執行操作結果訊息（成功或失敗）。
     """
-    path = f"{ROOT_DIR}/{file_path}"
+    path = Path(ROOT_DIR) / file_path
     try:
         # 使用 'w' 模式進行寫入，這會完全覆蓋檔案的現有內容
         with open(path, 'w', encoding='utf-8') as f:
@@ -179,7 +274,7 @@ def save_upload_file(upload: UploadFile) -> str:
     with dest.open("wb") as out:
         shutil.copyfileobj(upload.file, out)
 
-    relative_path = str(dest).replace(ROOT_DIR + "/", "")
+    relative_path = dest.relative_to(Path(ROOT_DIR)).as_posix()
     return relative_path
 
 
@@ -212,6 +307,7 @@ agent = create_deep_agent(
     tools=[
         # ── 原始資料工具 ──
         read_pdf_text,
+        sha256_file,
         overwrite_file,
         # ── wiki 操作工具（llm-wiki 模式） ──
         read_wiki_file,
@@ -234,9 +330,9 @@ agent = create_deep_agent(
 # ─────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("🚀 Shrimp Agent Server 啟動")
+    print("[Server] Shrimp Agent Server 啟動")
     yield
-    print("🛑 Server 關閉")
+    print("[Server] Server 關閉")
 
 
 app = FastAPI(title="Shrimp DeepAgent", lifespan=lifespan)
@@ -327,6 +423,8 @@ async def chat(
         prompt += "\n\n已上傳檔案：\n" + "\n".join(uploaded_paths)
 
     async def event_gen():
+        # 立刻送出一則 SSE，避免客戶端在「圖尚未開始吐事件」前長時間零輸出
+        yield sse_token(status="[chat] stream opened, running agent...")
         async for item in stream_agent(
             {"messages": [{"role": "user", "content": prompt}]},
             config
@@ -335,7 +433,8 @@ async def chat(
 
         yield {"data": "[DONE]"}
 
-    return EventSourceResponse(event_gen())
+    # ping：長推理時仍定期送 SSE 註解行，方便腳本 / 前端確認連線仍活著
+    return EventSourceResponse(event_gen(), ping=12)
 
 
 # ─────────────────────────────────────────────

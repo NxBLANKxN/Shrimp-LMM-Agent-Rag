@@ -28,8 +28,14 @@ description: 將新文件攝取進入持久化知識庫
 
 ## 外部來源標準流程（11 步）
 
+**Step 0 — 確認寫入目錄與路徑格式**
+- `write_wiki_file` 的 `relative_path` 是「相對於 `wiki/`」。
+- 所有寫入路徑必須使用：`sources/...`、`concepts/...`、`entities/...`、`synthesis/...`。
+- 禁止把 `wiki/` 前綴再寫進 `relative_path`（例如 `wiki/sources/...` 是錯誤寫法）。
+
 **Step 1 — 讀取原始資料**
-- PDF → 使用 `read_pdf_text` 讀取全文
+- PDF → 使用 `read_pdf_text(file_path, max_chars, start_offset)` 分段讀取
+- 建議以 8,000–12,000 字為一段，必要時遞增 `start_offset` 逐段處理後再合併重點
 - 其他文字 → 直接讀取使用者提供的內容
 - raw/ 目錄**唯讀**，絕不修改
 
@@ -42,12 +48,22 @@ description: 將新文件攝取進入持久化知識庫
 > | 整個 frontmatter | 以上規則全部應用，並在 `log.md` 記錄：`警告：來源文件缺少標準 frontmatter — <slug>` |
 
 **Step 2 — 計算 SHA-256 哈希**
-- 使用 Python `hashlib.sha256` 計算原始檔案的哈希值
+- 使用 `sha256_file` 工具計算原始檔案的哈希值
 - 寫入 source 頁的 `raw_sha256` frontmatter 欄位
 
-**Step 3 — 與使用者確認核心要點**
-- 簡述文件主要發現、方法論、結論（3–5 句）
-- 詢問使用者是否有特別想強調的面向
+**Step 3 — 與使用者確認核心要點（分岔，必讀）**
+
+此步容易導致「只讀 PDF、沒寫 wiki」——**禁止**在下列情況僅停在本步：
+
+- **全自動路徑（預設，同一回合必須寫入）**：使用者已表達任一同義意圖時，**不得**等待使用者再回覆才繼續 Step 4–11。同義語包含但不限於：「寫入知識庫」「依 skills / 既有流程處理」「完整攝取」「ingest 完成」「處理並寫入」「分析並存進 wiki」。
+  - 行為：讀完 raw 後，**直接**執行 Step 4–11（含至少一則 `write_wiki_file` 寫入 `sources/<slug>.md`）。
+  - Step 3 的「確認」改為：在**最終給使用者的文字**末尾附 3–5 句核心摘要 + **列出本次已寫入的檔案路徑**（相對 `wiki/`），並可附一句「若要強調某面向可再說」——**不作為**繼續寫入的前置條件。
+- **僅預覽路徑**：僅當使用者明確說「先不要寫入」「只要預覽／摘要」「不要改 wiki」時，才可只產出摘要並停止；此時**不得**呼叫 `write_wiki_file`。
+
+**完成門檻（鐵律）**：凡走全自動路徑，在宣告任務完成或結束本回合前，**至少**須成功：
+1. `write_wiki_file` → `sources/<slug>.md`（一個 PDF 一個 slug；多份 PDF 則多個 source 頁）
+2. `append_log`（action: `ingest`）
+未達成則**禁止**使用「已完成攝取」「已寫入知識庫」等語。
 
 **Step 4 — 生成 slug**
 - 格式：小寫英文，用連字符，例如 `biofloc-technology-review`
@@ -65,7 +81,7 @@ description: 將新文件攝取進入持久化知識庫
 - 若 slug 或 aliases 匹配到已有頁面 → 更新已有頁面，不創建新頁面
 
 **Step 7 — 寫入 / 更新 Concept 頁**
-- 若 `wiki/concepts/<slug>.md` 已存在：
+- 若 `concepts/<slug>.md` 已存在：
   - `read_wiki_file` 讀取現有頁面
   - 追加新來源引用到 `## Sources`
   - 在 `## Evolution Log` 追加一條記錄（格式見下方）
@@ -81,7 +97,7 @@ description: 將新文件攝取進入持久化知識庫
 ```
 
 **Step 8 — 寫入 / 更新 Entity 頁**
-- 邏輯同 Step 7，目錄為 `wiki/entities/`，模板為 `entity-template.md`
+- 邏輯同 Step 7，目錄為 `entities/`，模板為 `entity-template.md`
 
 **Step 9 — 更新 index.md**
 - `read_wiki_file` 讀取 `index.md`
@@ -105,7 +121,7 @@ description: 將新文件攝取進入持久化知識庫
 - **不生成** `## Summary` 節，跳過客觀摘要
 - 核心論點寫入相關 concept 頁的 `## My Position` 節，標注「個人認知」
 - **不計入** `source_count`（避免用自己文章給自己背書）
-- 若文章引用外部來源，嘗試與已有 `wiki/sources/` 頁面建立 wikilinks
+- 若文章引用外部來源，嘗試與已有 `sources/` 頁面建立 wikilinks
 - Evolution Log 記錄：`YYYY-MM-DD 個人寫作 [[slug]] 確立了對此概念的明確立場`
 
 ---

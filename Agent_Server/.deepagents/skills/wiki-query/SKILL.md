@@ -22,7 +22,11 @@ description: 檢索知識庫中的資訊以回答使用者問題
 **Step Q1 — 快速索引掃描（Query-First，必須執行）**
 - `read_wiki_file` 讀取 `index.md`
 - `read_wiki_file` 讀取 `QUESTIONS.md`
+- `list_wiki_files` 掃 `sources`（確認 `wiki/sources/` 下是否已有**已攝取**的來源 `.md`，非僅空目錄）
 - 判斷是否有現成的相關頁面或已知答案
+- **無來源頁時的 fail-fast**：若 `sources/` 內尚無任何來源摘要頁，而使用者要求「依知識庫／引用文獻／引用來源」：
+  - 明確說明：**wiki 層尚未 ingest**，請先執行 ingest；`raw/` 有 PDF **不代表** `sources/` 已有頁面。
+  - **禁止**說成「知識庫從未有此文獻」造成與 raw 現況矛盾。
 
 **Step Q2a — 直接命中（Direct Hit）**
 - 若 index.md 有明確對應頁面 → `read_wiki_file` 讀取該頁面
