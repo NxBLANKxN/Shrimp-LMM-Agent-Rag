@@ -15,7 +15,6 @@ export default function ChatPage() {
     const [files, setFiles] = useState<File[]>([]);
     const [loading, setLoading] = useState(false);
 
-    // 狀態處理：processMsg 負責接收原始訊號，displayMsg 負責平滑顯示
     const [processMsg, setProcessMsg] = useState<string | null>(null);
     const [displayMsg, setDisplayMsg] = useState<string | null>(null);
 
@@ -24,14 +23,14 @@ export default function ChatPage() {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const lastUpdate = useRef<number>(0);
 
-    // --- 邏輯 A: 平滑顯示狀態 (解決跳太快的問題) ---
+    // 平滑顯示狀態邏輯
     useEffect(() => {
         if (!processMsg) {
             setDisplayMsg(null);
             return;
         }
         const now = Date.now();
-        const minDisplayTime = 500; // 每個狀態最少停留 0.5 秒
+        const minDisplayTime = 500;
 
         const update = () => {
             setDisplayMsg(processMsg);
@@ -47,7 +46,7 @@ export default function ChatPage() {
         }
     }, [processMsg]);
 
-    // --- 邏輯 B: 自動捲動 ---
+    // 自動捲動邏輯
     useEffect(() => {
         if (scrollRef.current) {
             const viewport = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
@@ -156,14 +155,11 @@ export default function ChatPage() {
     };
 
     return (
-        /* 外層鎖定動態視窗高度 h-dvh */
         <div className="flex flex-col h-dvh w-full max-w-5xl mx-auto overflow-hidden bg-transparent">
-
             {/* 訊息顯示區域 */}
             <div className="flex-1 min-h-0 relative">
                 <ScrollArea className="h-full w-full px-4" ref={scrollRef}>
                     <div className="flex flex-col gap-6 py-8">
-
                         {messages.length === 0 && (
                             <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in duration-700">
                                 <p className="text-2xl font-black text-zinc-300 dark:text-zinc-700 uppercase tracking-[0.2em]">Shrimp AI</p>
@@ -184,22 +180,20 @@ export default function ChatPage() {
                                     {m.role === "user" ? <User size={16} className="text-zinc-500" /> : <Bot size={16} />}
                                 </div>
 
-                                {/* 訊息氣泡 */}
-                                <div className={`flex flex-col max-w-[85%] ${m.role === "user" ? "items-end" : "items-start"}`}>
-                                    <div className={`relative px-4 py-2.5 rounded-2xl shadow-sm transition-colors ${m.role === "user"
+                                {/* 訊息氣泡容器：加入 min-w-0 是為了解決表格撐破版面的核心 */}
+                                <div className={`flex flex-col max-w-[85%] min-w-0 ${m.role === "user" ? "items-end" : "items-start"}`}>
+                                    <div className={`w-full overflow-hidden relative px-4 py-2.5 rounded-2xl shadow-sm transition-colors ${m.role === "user"
                                         ? "bg-blue-600 text-white rounded-tr-none"
                                         : "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none"
                                         }`}>
 
-                                        {/* Markdown 渲染優化 */}
                                         <article className={`
                                             max-w-none break-words text-left
                                             prose prose-sm md:prose-base
                                             ${m.role === "user" ? "prose-invert" : "dark:prose-invert"}
-  
-                                            /* 表格專屬優化 */
-                                            prose-table:rounded-xl prose-table:border prose-table:border-zinc-200 dark:prose-table:border-zinc-800
-
+                                            
+                                            /* 表格與代碼容器優化：確保內部可以捲動 */
+                                            prose-table:w-full prose-table:overflow-x-auto
                                             prose-p:leading-relaxed
                                             prose-pre:bg-zinc-950 prose-pre:border prose-pre:border-zinc-800
                                             prose-code:text-blue-500 prose-code:before:content-[''] prose-code:after:content-['']
@@ -242,7 +236,6 @@ export default function ChatPage() {
             <div className="shrink-0 p-4 pt-2 border-t border-zinc-100 dark:border-zinc-800 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md">
                 <div className="max-w-4xl mx-auto relative bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xl transition-shadow focus-within:shadow-blue-500/5">
 
-                    {/* 檔案預覽 */}
                     {files.length > 0 && (
                         <div className="flex flex-wrap gap-2 p-3 border-b border-zinc-50 dark:border-zinc-800">
                             {files.map((file, idx) => (

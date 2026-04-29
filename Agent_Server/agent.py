@@ -15,7 +15,7 @@ from langchain.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
-from deepagents import create_deep_agent
+from deepagents import AsyncSubAgent, create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
 
 
@@ -93,6 +93,30 @@ def read_pdf_text(file_path: str) -> str:
     except Exception as e:
         return str(e)
 
+@tool
+def overwrite_file(file_path: str, content: str) -> str:
+    """
+    完全覆蓋現有檔案的內容。此工具用於替換檔案的全部內容，而非僅僅編輯特定字串。
+    當目標是更新知識庫中檔案的完整內容時，應使用此工具。
+    
+    Args:
+        file_path (str): 需要被覆蓋的檔案的絕對路徑。必須是絕對路徑。
+        content (str): 用來替換現有檔案的完整新文本內容。
+        
+    Returns:
+        str: 執行操作結果訊息（成功或失敗）。
+    """
+    path = f"{ROOT_DIR}/{file_path}"
+    try:
+        # 使用 'w' 模式進行寫入，這會完全覆蓋檔案的現有內容
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return f"成功：檔案 '{file_path}' 的內容已完全覆蓋並更新。"
+    except FileNotFoundError:
+        return f"錯誤：找不到檔案 '{file_path}'。請確認路徑是否正確。"
+    except Exception as e:
+        return f"執行 overwrite_file 發生未知錯誤：{str(e)}"
+
 
 # ─────────────────────────────────────────────
 # 檔案分類器
@@ -144,6 +168,14 @@ def save_upload_file(upload: UploadFile) -> str:
 
 
 # ─────────────────────────────────────────────
+# Subagents
+# ─────────────────────────────────────────────
+
+
+
+
+
+# ─────────────────────────────────────────────
 # Agent
 # ─────────────────────────────────────────────
 checkpointer = MemorySaver()
@@ -158,21 +190,10 @@ agent = create_deep_agent(
     backend=backend,
     system_prompt="""
 你是一位專業智慧蝦隻養殖 AI 助手。
-
-規則：
-1. 使用者上傳的檔案已自動分類到 raw/ 對應資料夾
-2. 如果是 PDF，可使用 read_pdf_text
-3. 根據使用者語言回答（預設繁體中文）
-4. 協助分析蝦病、水質、養殖、研究資料
 """,
     skills=[f"./{SKILLS_DIR}"],
     memory=[f"./{AGENT_DIR}"],
-    tools=[read_pdf_text],
-    interrupt_on={
-        "write_file": {
-            "allowed_decisions": ["approve", "edit", "reject"]
-        }
-    },
+    tools=[read_pdf_text,overwrite_file],
     checkpointer=checkpointer,
 )
 
@@ -254,7 +275,7 @@ async def chat(
     thread_id: str = Form("default"),
     files: list[UploadFile] = File(default=[])
 ):
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {"configurable": {"thread_id": thread_id} , "recursion_limit": 50}
 
     uploaded_paths = []
 

@@ -1,157 +1,68 @@
 # AGENTS.md
 
-## 🧠 System Identity
+## 專案概述
 
-智慧蝦隻養殖 AI 知識系統
+智慧蝦隻養殖 AI 知識系統，專門處理使用者對於養殖有關的問題，例如水質管理、病害預防與治療、飼料優化、養殖環境控制，以及自動化監控系統的整合應用等，期望能協助養殖業者提升生產效率、降低風險，並促進永續養殖的發展。
 
----
+## 專案架構
 
-## 📦 Knowledge Structure
+knowledge-base/                              # 知識庫根目錄
+    ├── output/                              # 輸出檔案
+    │   ├── lint.md                          # lint 報告
+    │   └── query.md                         # 查詢結果
+    ├── raw/                                 # 原始資料
+    │   ├── articles/                        # 手動保存的文獻
+    │   ├── audio/                           # 音訊
+    │   ├── clippings/                       # 剪報
+    │   ├── datasets/                        # 資料集
+    │   ├── documents/                       # 文件
+    │   ├── images/                          # 圖片
+    │   ├── notes/                           # 筆記
+    │   ├── observations/                    # 觀察
+    │   ├── pdfs/                            # PDF 文件
+    │   ├── personal/                        # 使用者自己寫的文章或筆記
+    │   └── videos/                          # 影片
+    ├── scripts/                             # 腳本
+    │   ├── lint.py                          # wiki 健康檢查腳本
+    │   └── qmd-reindex.sh                   # 重建 qmd 索引腳本
+    └── wiki/                                # 知識庫核心資料
+        ├── QUESTIONS.md                     # 知識庫中常被問到的問題
+        ├── concepts/                        # 概念定義
+        ├── entities/                        # 實體定義
+        ├── index.md                         # 內容索引
+        ├── log.md                           # 操作日誌
+        ├── overview.md                      # 知識庫總覽
+        ├── sources/                         # 每個來源的摘要
+        ├── synthesis/                       # 跨來源合成分析
+        └── templates/                       # 模板
+            ├── concept-template.md          # 概念定義模板
+            ├── entity-template.md           # 實體定義模板
+            ├── personal-writing-template.md # 使用者個人寫作模板
+            ├── source-template.md           # 來源摘要模板
+            └── synthesis-template.md        # 跨來源合成模板
+## 作業流程
 
-知識庫位置：knowledge-base/
-
-系統包含三層：
-
-### 1. raw/
-- 人類提供的原始資料
-- LLM 僅可讀取
-- 不可修改
-
----
-
-### 2. wiki/
-- 系統核心知識庫
-- LLM 可讀寫
-- 包含：
-  - concepts（概念）
-  - entities（實體）
-  - sources（來源）
-  - synthesis（推理結果）
-  - index（索引）
-  - log（紀錄）
-
----
-
-### 3. outputs/
-- 系統輸出結果
-- 包含查詢與分析報告
-
----
-
-## 🔁 三種操作模式（核心行為）
-
----
-
-## 🟢 INGEST（匯入模式）
-
-觸發條件：
-- 使用者上傳資料
-- 或輸入 ingest / 攝入 / 處理這個
-
-### 行為流程：
-
-1. 讀取 raw 資料（只讀）
-2. 判斷資料類型
-3. 解析內容
-4. 建立或更新 wiki/sources
-5. 抽取概念與實體
-6. 更新相關 concepts / entities
-7. 更新 index
-8. 記錄 log
-
----
-
-### 規則：
-
-- 概念必須統一名稱
-- 已存在 concept → 更新，不重建
-- 所有知識必須可追溯來源
-
----
-
-## 🔵 QUERY（查詢模式）
-
-觸發條件：
-- 使用者提問
-- 或 query / 根據知識庫
-
-### 行為流程：
-
-1. 搜尋 wiki 相關內容
-2. 讀取前 5 個最相關項目
-3. 整合內容
-4. 產生答案
-
----
-
-### 規則：
-
-- 必須基於 wiki
-- 必須引用來源
-- 可跨 concept 推理
-- 可回寫新知識（若有價值）
-
----
-
-## 🟣 LINT（健康檢查）
-
-觸發條件：
-- lint / 檢查 / 健康
-
-### 行為：
-
-- 檢查孤立概念
-- 檢查矛盾定義
-- 檢查缺失連結
-- 檢查過期內容
-
----
-
-### 輸出：
-
-寫入 outputs/lint.md
-
----
-
-## 🟡 REFLECT（反思模式）
-
-觸發條件：
-- reflect / 綜合分析
-
-### 行為：
-
-- 分析跨概念關聯
-- 找出知識缺口
-- 找出矛盾
-- 找出隱性模式
-
----
-
-### 輸出：
-
-寫入 wiki/synthesis/
-
----
-
-## 📌 系統規則
-
-- raw/ 永遠不可修改
-- wiki/log.md 只能追加
-- 所有知識必須可追溯
-- 所有變更必須記錄
-
----
-
-## 🌏 語言規則
-
-- 預設繁體中文
-- concept 使用英文 slug
-- aliases 支援中英文
-
----
-
-## 🧠 核心原則
-
-本系統是一個：
-
-> 可持續演進的知識圖譜系統（Living Knowledge System）
+**1. 使用者輸入 Query（問題）**
+   - Agent 接收到問題後，判斷是否為「知識庫查詢」
+   
+**2. 檢查知識庫是否已有答案（Query-First）**
+   - 使用工具
+   - 查詢 `QUESTIONS.md` + `index.md`，看是否有現成的答案
+   
+**3. 知識庫有答案（Direct Hit）**
+   - Agent 直接回傳找到的現有答案（無需重新生成）
+   - 流程結束
+   
+**4. 知識庫無答案（Generation Required）**
+   - Agent 知道目前沒有現成答案
+   - 開始 RAG + 生成流程：
+     1. 從 knowledge-base/raw/ 中檢索相關文件
+     2. 根據檢索結果生成答案
+     3. 返回答案給使用者
+   
+**5. 生成後續處理（Optional）**
+   - Agent 可選擇將新生成的問題：
+     - 加入 QUESTIONS.md 作為未來問題範例
+     - 更新相關 concepts/entities 定義
+     - 記錄到 log.md
+     - 並依照 wiki 中的模板分別依序寫入各個對應的資料夾中
