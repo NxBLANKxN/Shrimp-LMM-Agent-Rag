@@ -18,6 +18,23 @@ from langgraph.types import Command
 from deepagents import AsyncSubAgent, create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
 
+# llm-wiki 工具集（透過 sys.path 插入，避免 relative import 問題）
+import sys as _sys
+_sys.path.insert(0, "/opt/Shrimp-LMM-Agent-Rag/Agent_Server/.deepagents/tools")
+from wiki_tools import (
+    read_wiki_file,
+    list_wiki_files,
+    write_wiki_file,
+    append_log,
+    search_wiki,
+    run_lint,
+)
+from qmd_tools import (
+    qmd_query,
+    qmd_status,
+    qmd_reindex,
+)
+
 
 # ─────────────────────────────────────────────
 # 基本設定
@@ -63,8 +80,7 @@ llm = ChatOpenAI(
     api_key="not-needed",
     model=LLAMA_MODEL,
     temperature=0.0,
-    max_tokens=64000,
-    streaming=True,
+    max_tokens=200000,
 )
 
 
@@ -88,7 +104,7 @@ def read_pdf_text(file_path: str) -> str:
         if not text.strip():
             return "PDF 無法提取文字，可能是掃描檔"
 
-        return text[:15000]
+        return text
 
     except Exception as e:
         return str(e)
@@ -193,7 +209,22 @@ agent = create_deep_agent(
 """,
     skills=[f"./{SKILLS_DIR}"],
     memory=[f"./{AGENT_DIR}"],
-    tools=[read_pdf_text,overwrite_file],
+    tools=[
+        # ── 原始資料工具 ──
+        read_pdf_text,
+        overwrite_file,
+        # ── wiki 操作工具（llm-wiki 模式） ──
+        read_wiki_file,
+        list_wiki_files,
+        write_wiki_file,
+        append_log,
+        search_wiki,
+        run_lint,
+        # ── 語意搜尋工具（qmd） ──
+        qmd_query,
+        qmd_status,
+        qmd_reindex,
+    ],
     checkpointer=checkpointer,
 )
 
@@ -258,9 +289,16 @@ async def stream_agent(input_data, config):
         # 3. 捕捉模型吐字
         elif kind == "on_chat_model_stream":
             chunk = event["data"]["chunk"]
-            if chunk.content:
-                # 這裡 status 保持顯示模型正在回應，並帶上原始模型名稱
-                yield sse_token(text=chunk.content, status=f"Streaming from {name}...")
+            content = chunk.content
+            # content 可能是 str（純文字）或 list（多模態），統一處理
+            if isinstance(content, str) and content:
+                yield sse_token(text=content, status=f"Streaming from {name}...")
+            elif isinstance(content, list):
+                combined = "".join(
+                    part.get("text", "") for part in content if isinstance(part, dict)
+                )
+                if combined:
+                    yield sse_token(text=combined, status=f"Streaming from {name}...")
 
         # 4. (選配) 捕捉節點切換 - 如果您想看 LangGraph 的節點跳轉
         elif kind == "on_chain_start":

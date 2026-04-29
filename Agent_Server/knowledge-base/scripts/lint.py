@@ -10,7 +10,7 @@ from datetime import datetime
 BASE_DIR = Path("/opt/Shrimp-LMM-Agent-Rag/Agent_Server/knowledge-base")
 WIKI_DIR = BASE_DIR / "wiki"
 RAW_DIR = BASE_DIR / "raw"
-OUTPUT_DIR = BASE_DIR / "outputs"
+OUTPUT_DIR = BASE_DIR / "output"
 
 # ─── 工具函式 ──────────────────────────────────────────────
 def get_all_md_files(directory):
@@ -58,23 +58,44 @@ class WikiLint:
 
     def check_1_frontmatter(self):
         errors = []
+        # system-* 類型的文件（log / index / overview / QUESTIONS）不要求 date 欄位
+        SYSTEM_TYPES = {"system-log", "system-index", "system-overview", "system-questions",
+                        "system-audit", "system-lint-report"}
         for f in self.files:
+            # 跳過模板目錄
+            if "templates" in str(f):
+                continue
             fm, _ = parse_md(f)
-            if not fm or 'type' not in fm or 'date' not in fm:
-                errors.append(f"- {f.relative_to(WIKI_DIR)}")
+            if not fm or 'type' not in fm:
+                errors.append(f"- {f.relative_to(WIKI_DIR)} (缺少 frontmatter 或 type 欄位)")
+                continue
+            # system-* 類型不強制要求 date
+            if fm['type'] in SYSTEM_TYPES:
+                continue
+            if 'date' not in fm:
+                errors.append(f"- {f.relative_to(WIKI_DIR)} (缺少 date 欄位)")
         if errors: self.reports.append("### 1. YAML Frontmatter 合法性錯誤\n" + "\n".join(errors))
 
     def check_2_and_9_wikilinks(self):
         broken = []
         format_err = []
         all_slugs = [f.stem for f in self.files]
-        
+        # 佔位符 slug（模板檔中常見）不計入検查
+        PLACEHOLDER_SLUGS = {"source-slug-here", "concept-slug-here", "entity-slug-here",
+                             "concept-slug", "source-slug", "entity-slug"}
+
         for f in self.files:
+            # 跳過模板目錄
+            if "templates" in str(f):
+                continue
             _, body = parse_md(f)
             links = re.findall(r'\[\[(.*?)\]\]', body)
             for link in links:
-                target = link.split('|')[0]
+                target = link.split('|')[0].strip()
                 self.wikilinks_found.append((f, target))
+                # 跳過已知佔位符
+                if target in PLACEHOLDER_SLUGS:
+                    continue
                 if target not in all_slugs:
                     broken.append(f"- {f.name} -> [[{target}]] (不存在)")
                 if not re.match(r'^[a-z0-9\-]+$', target) and not any('\u4e00' <= c <= '\u9fff' for c in target):
@@ -128,10 +149,21 @@ class WikiLint:
         stale = []
         volatility_map = {"high": 90, "medium": 180, "low": 365}
         for f in self.files:
+            # 跳過模板目錄（含佔位符，非真實資料）
+            if "templates" in str(f):
+                continue
             fm, _ = parse_md(f)
             if fm and fm.get('type') == 'concept' and fm.get('updated'):
+                updated_str = str(fm['updated'])
+                # 跳過佔位符（如 {{date}}）
+                if updated_str.startswith('{{'):
+                    continue
+                try:
+                    last_update = datetime.strptime(updated_str, '%Y-%m-%d')
+                except ValueError:
+                    self.reports.append(f"### 7. Stale 頁面 (日期格式錯誤)\n- {f.name}: updated='{updated_str}' 格式不符 YYYY-MM-DD")
+                    continue
                 days_limit = volatility_map.get(fm.get('domain_volatility', 'medium'), 180)
-                last_update = datetime.strptime(str(fm['updated']), '%Y-%m-%d')
                 delta = (datetime.now() - last_update).days
                 if delta > days_limit:
                     stale.append(f"- {f.name} (已過期 {delta} 天)")
