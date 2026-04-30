@@ -31,7 +31,10 @@ LINT_SCRIPT = _KB_ROOT / "scripts" / "lint.py"
 def _resolve(relative_path: str) -> Path:
     """把使用者傳入的相對路徑解析到 wiki 根目錄，防止路徑穿越。"""
     resolved = (WIKI_ROOT / relative_path).resolve()
-    if not str(resolved).startswith(str(WIKI_ROOT.resolve())):
+    root = WIKI_ROOT.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError:
         raise ValueError(f"路徑穿越攻擊被阻擋：{relative_path}")
     return resolved
 

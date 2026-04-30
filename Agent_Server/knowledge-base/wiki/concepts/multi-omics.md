@@ -2,10 +2,12 @@
 title: 多維體分析
 slug: multi-omics
 type: concept
+date: 2025-05-22
+updated: 2026-04-30
 aliases: [Multi-omics Analysis, 多維體分析]
 confidence: low
 source_count: 1
-last_reviewed: 2025-05-22
+last_reviewed: 2026-04-30
 tags: [bioinformatics, genomics]
 ---
 

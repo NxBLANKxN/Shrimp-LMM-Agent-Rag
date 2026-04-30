@@ -4,6 +4,7 @@ slug: m-rosenbergii-transcriptome-analysis
 type: source
 author: 高寘昕
 date: 2022-06-01
+raw_file: raw/articles/U0001-0906202200531700.pdf
 raw_sha256: 0fa80b0911938e443837d0aa3ab107802c33e67cf58eb06062bfcce6796c083f
 source_url: https://doi.org/10.6342/NTU202200893
 possibly_outdated: false

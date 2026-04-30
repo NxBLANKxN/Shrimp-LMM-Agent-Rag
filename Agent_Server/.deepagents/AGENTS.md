@@ -16,7 +16,7 @@
 
 ## 目錄結構
 
-每次執行前請使用 `ls` 完全掃描知識庫裡面每一層的檔案與資料夾
+每次執行前請使用專用 wiki 工具掃描知識庫：`list_wiki_files` 掃 wiki 頁面，必要時用 `read_wiki_file` 讀 `index.md`、`QUESTIONS.md`、`overview.md`、`log.md`。不要用內建 `ls("wiki/")` 或 `read_file("wiki/...")` 判斷 wiki 狀態；若使用內建 filesystem 工具，實際路徑是 `knowledge-base/wiki/...`。
 
 ```
 knowledge-base/
@@ -76,6 +76,13 @@ knowledge-base/
 | `qmd_query` | BM25 + 向量混合搜尋（模糊語意）|
 | `qmd_status` | 查看 qmd 索引狀態 |
 | `qmd_reindex` | 重建 qmd 索引 |
+
+### ⚠️ Wiki 工具路由規則
+
+- 查 wiki：優先使用 `read_wiki_file`、`list_wiki_files`、`search_wiki`。
+- `read_wiki_file` 的路徑相對於 `knowledge-base/wiki/`，例如 `index.md`、`overview.md`、`sources/foo.md`。
+- 若內建 filesystem 工具回報 `/wiki/... not found` 或 `wiki/` 是空的，不可判定知識庫空；必須改用 `list_wiki_files` 複查。
+- 健康檢查與查詢不得因 filesystem 路徑錯誤而宣稱 wiki 尚未 ingest。
 
 ---
 

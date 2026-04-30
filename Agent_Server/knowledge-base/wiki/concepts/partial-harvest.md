@@ -2,10 +2,12 @@
 title: 間捕
 slug: partial-harvest
 type: concept
+date: 2025-05-22
+updated: 2026-04-30
 aliases: [Partial Harvest, 分批捕撈, 輪捕]
 confidence: low
 source_count: 1
-last_reviewed: 2025-05-22
+last_reviewed: 2026-04-30
 tags: [aquaculture, management]
 ---
 

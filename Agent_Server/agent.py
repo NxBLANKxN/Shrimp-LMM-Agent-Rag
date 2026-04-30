@@ -8,6 +8,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from urllib import request, error
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Form, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
@@ -23,6 +24,7 @@ from deepagents.backends.filesystem import FilesystemBackend
 # llm-wiki 工具集（透過 sys.path 插入，避免 relative import 問題）
 import sys as _sys
 BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 TOOLS_DIR = BASE_DIR / ".deepagents" / "tools"
 _sys.path.insert(0, str(TOOLS_DIR))
 from wiki_tools import (
@@ -43,9 +45,9 @@ from qmd_tools import (
 # ─────────────────────────────────────────────
 # 基本設定
 # ─────────────────────────────────────────────
-LLAMA_URL   = "http://localhost:8080/v1"
-LLAMA_MODEL = "gemma-4-E4B-it-GGUF:Q8_0"
-PORT        = 8001
+LLAMA_URL   = os.getenv("LLAMA_URL", "http://localhost:8080/v1")
+LLAMA_MODEL = os.getenv("LLAMA_MODEL", "gemma-4-E4B-it-GGUF:Q8_0")
+PORT        = int(os.getenv("PORT", "8001"))
 
 ROOT_DIR    = str(BASE_DIR)
 WORKSPACE   = str(BASE_DIR / "knowledge-base")
@@ -207,24 +209,38 @@ def sha256_file(file_path: str) -> str:
 @tool
 def overwrite_file(file_path: str, content: str) -> str:
     """
-    完全覆蓋現有檔案的內容。此工具用於替換檔案的全部內容，而非僅僅編輯特定字串。
-    當目標是更新知識庫中檔案的完整內容時，應使用此工具。
+    完全覆蓋 knowledge-base/output/ 內的檔案內容。
+    此工具供 lint/query/reflect 輸出報告使用，不可寫入 raw/ 或 wiki/。
     
     Args:
-        file_path (str): 需要被覆蓋的檔案的絕對路徑。必須是絕對路徑。
+        file_path (str): 相對於 knowledge-base/output/ 的路徑，或以 knowledge-base/output/ 開頭的路徑。
         content (str): 用來替換現有檔案的完整新文本內容。
         
     Returns:
         str: 執行操作結果訊息（成功或失敗）。
     """
-    path = Path(ROOT_DIR) / file_path
     try:
-        # 使用 'w' 模式進行寫入，這會完全覆蓋檔案的現有內容
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        return f"成功：檔案 '{file_path}' 的內容已完全覆蓋並更新。"
-    except FileNotFoundError:
-        return f"錯誤：找不到檔案 '{file_path}'。請確認路徑是否正確。"
+        raw_path = Path(file_path)
+        if raw_path.is_absolute():
+            path = raw_path.resolve()
+        else:
+            normalized = file_path.strip().lstrip("/\\")
+            prefixes = ("knowledge-base/output/", "knowledge-base\\output\\", "output/", "output\\")
+            for prefix in prefixes:
+                if normalized.startswith(prefix):
+                    normalized = normalized[len(prefix):]
+                    break
+            path = (OUTPUT_DIR / normalized).resolve()
+
+        output_root = OUTPUT_DIR.resolve()
+        if path != output_root and output_root not in path.parents:
+            return "錯誤：overwrite_file 只能寫入 knowledge-base/output/ 目錄。"
+        if path.suffix.lower() not in {".md", ".txt", ".json"}:
+            return "錯誤：overwrite_file 僅允許寫入 .md、.txt、.json 檔案。"
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return f"成功：檔案 'knowledge-base/output/{path.relative_to(output_root).as_posix()}' 的內容已完全覆蓋並更新。"
     except Exception as e:
         return f"執行 overwrite_file 發生未知錯誤：{str(e)}"
 
@@ -301,6 +317,12 @@ agent = create_deep_agent(
     backend=backend,
     system_prompt="""
 你是一位專業智慧蝦隻養殖 AI 助手。
+
+工具使用規則：
+- 檢查或讀取 wiki 時，必須優先使用 `read_wiki_file`、`list_wiki_files`、`search_wiki`。
+- 不要用內建 `read_file("wiki/...")` 或 `ls("wiki/...")` 判斷 wiki 狀態；若必須用內建 filesystem 工具，實際路徑是 `knowledge-base/wiki/...`。
+- 若 filesystem 工具回報 `/wiki/... not found` 或 `wiki/` 為空，不可直接判定知識庫為空；必須改用 `list_wiki_files` 或 `read_wiki_file` 複查。
+- 回答使用者時不要輸出 `<thought>`、`</thought>` 或內部推理內容。
 """,
     skills=[f"./{SKILLS_DIR}"],
     memory=[f"./{AGENT_DIR}"],
@@ -364,6 +386,47 @@ def sse_token(text: str = "", status: str = None):
 
 
 async def stream_agent(input_data, config):
+    in_thought = False
+    pending_text = ""
+
+    def consume_thought_filtered(text: str) -> str:
+        nonlocal in_thought
+        output = []
+        cursor = 0
+        while cursor < len(text):
+            if in_thought:
+                end = text.find("</thought>", cursor)
+                if end == -1:
+                    return "".join(output)
+                cursor = end + len("</thought>")
+                in_thought = False
+                continue
+
+            start = text.find("<thought>", cursor)
+            if start == -1:
+                output.append(text[cursor:])
+                break
+            output.append(text[cursor:start])
+            cursor = start + len("<thought>")
+            in_thought = True
+        return "".join(output)
+
+    def strip_thought_tags(text: str, final: bool = False) -> str:
+        nonlocal pending_text
+        pending_text += text
+
+        if final:
+            data = pending_text
+            pending_text = ""
+        else:
+            keep = len("</thought>")
+            if len(pending_text) <= keep:
+                return ""
+            data = pending_text[:-keep]
+            pending_text = pending_text[-keep:]
+
+        return consume_thought_filtered(data)
+
     async for event in agent.astream_events(
         input_data,
         config=config,
@@ -388,13 +451,21 @@ async def stream_agent(input_data, config):
             content = chunk.content
             # content 可能是 str（純文字）或 list（多模態），統一處理
             if isinstance(content, str) and content:
-                yield sse_token(text=content, status=f"Streaming from {name}...")
+                filtered = strip_thought_tags(content)
+                if filtered:
+                    yield sse_token(text=filtered, status=f"Streaming from {name}...")
             elif isinstance(content, list):
                 combined = "".join(
                     part.get("text", "") for part in content if isinstance(part, dict)
                 )
-                if combined:
-                    yield sse_token(text=combined, status=f"Streaming from {name}...")
+                filtered = strip_thought_tags(combined)
+                if filtered:
+                    yield sse_token(text=filtered, status=f"Streaming from {name}...")
+
+        elif kind == "on_chat_model_end":
+            filtered = strip_thought_tags("", final=True)
+            if filtered:
+                yield sse_token(text=filtered, status=f"Streaming from {name}...")
 
         # 4. (選配) 捕捉節點切換 - 如果您想看 LangGraph 的節點跳轉
         elif kind == "on_chain_start":

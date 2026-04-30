@@ -4,6 +4,7 @@ slug: biofloc-technology-aquaculture-application
 type: source
 author: 陳瑤湖
 date: 2025-06-02
+raw_file: raw/articles/FER202505501.pdf
 raw_sha256: 27812d19de42a2455b0abe538b2ebfcccae74c4389383e36f6fb6cba0b07501c
 source_url: https://doi.org/10.29474/FER.202512.0106
 possibly_outdated: false
@@ -52,4 +53,4 @@ tags: [生物絮技術, 水產養殖, 微生物聚落, 零換水]
 (無明顯矛盾)
 
 ## Sources
-- [[FER202505501]]
+- raw/articles/FER202505501.pdf

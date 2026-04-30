@@ -23,6 +23,7 @@ description: 檢索知識庫中的資訊以回答使用者問題
 - `read_wiki_file` 讀取 `index.md`
 - `read_wiki_file` 讀取 `QUESTIONS.md`
 - `list_wiki_files` 掃 `sources`（確認 `wiki/sources/` 下是否已有**已攝取**的來源 `.md`，非僅空目錄）
+- 禁止用內建 `ls("wiki/")` 或 `read_file("wiki/...")` 判斷 wiki 是否存在；若 filesystem 工具回報 wiki 空，必須改用 `list_wiki_files` 複查
 - 判斷是否有現成的相關頁面或已知答案
 - **無來源頁時的 fail-fast**：若 `sources/` 內尚無任何來源摘要頁，而使用者要求「依知識庫／引用文獻／引用來源」：
   - 明確說明：**wiki 層尚未 ingest**，請先執行 ingest；`raw/` 有 PDF **不代表** `sources/` 已有頁面。
@@ -31,11 +32,11 @@ description: 檢索知識庫中的資訊以回答使用者問題
 **Step Q2a — 直接命中（Direct Hit）**
 - 若 index.md 有明確對應頁面 → `read_wiki_file` 讀取該頁面
 - 合成答案，標明來源頁面的 wikilink 路徑
-- **流程結束**，跳過 Q2b 和 Q3
+- 仍需執行 Step Q5 記錄 log；跳過 Q2b
 
 **Step Q2b — 需要搜尋**
 - 若 index.md 無明確對應 → 使用 `search_wiki` 搜尋問題關鍵詞
-- 若 grep 搜尋不精確（語意模糊）→ 改用 `qmd_query` 進行向量搜尋
+- 若 grep 搜尋不精確（語意模糊）→ 改用 `qmd_query` 進行向量搜尋；若 qmd 回報不可用，回退使用 `search_wiki` 的關鍵詞命中結果，不可因 qmd 缺失而停止回答
 - `read_wiki_file` 讀取搜尋命中的相關頁面
 
 **Step Q3 — 合成答案**
@@ -46,8 +47,11 @@ description: 檢索知識庫中的資訊以回答使用者問題
 **Step Q4 — 可選：歸檔答案**
 - 若答案具有長期複用價值（複雜分析、比較表、跨文獻合成）
 - 詢問使用者是否歸檔
-- 若同意 → `write_wiki_file` 寫入 `../output/query.md` 或 `synthesis/<slug>.md`
+- 若同意 → 使用 `overwrite_file` 寫入 `query.md`，或使用 `write_wiki_file` 寫入 `synthesis/<slug>.md`
+
+**Step Q5 — 記錄 Log（必須）**
 - `append_log`：action=`query`，title=問題摘要
+- detail 填入本次讀取的 source/concept 頁面列表
 
 ---
 

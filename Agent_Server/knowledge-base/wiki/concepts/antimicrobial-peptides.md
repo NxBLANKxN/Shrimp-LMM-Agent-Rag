@@ -2,10 +2,12 @@
 title: 抗菌肽
 slug: antimicrobial-peptides
 type: concept
+date: 2025-05-22
+updated: 2026-04-30
 aliases: [AMPs, Antimicrobial Peptides]
 confidence: low
 source_count: 1
-last_reviewed: 2025-05-22
+last_reviewed: 2026-04-30
 tags: [immunology, molecular-biology]
 ---
 

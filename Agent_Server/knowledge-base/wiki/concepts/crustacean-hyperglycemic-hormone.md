@@ -2,10 +2,12 @@
 title: 甲殼類高血糖素
 slug: crustacean-hyperglycemic-hormone
 type: concept
+date: 2025-05-22
+updated: 2026-04-30
 aliases: [CHH, Crustacean Hyperglycemic Hormone]
 confidence: low
 source_count: 1
-last_reviewed: 2025-05-22
+last_reviewed: 2026-04-30
 tags: [endocrinology, physiology]
 ---
 

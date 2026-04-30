@@ -2,10 +2,12 @@
 title: 生物絮技術
 slug: biofloc-technology
 type: concept
+date: 2025-05-22
+updated: 2026-04-30
 aliases: [Biofloc Technology, BFT, 生物絮, 生物絮凝]
 confidence: low
 source_count: 1
-last_reviewed: 2025-05-22
+last_reviewed: 2026-04-30
 tags: [aquaculture, microbiology, water-quality]
 ---
 

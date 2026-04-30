@@ -2,10 +2,12 @@
 title: 零換水
 slug: zero-water-exchange
 type: concept
+date: 2025-05-22
+updated: 2026-04-30
 aliases: [Zero Water Exchange, 零換水養殖]
 confidence: low
 source_count: 1
-last_reviewed: 2025-05-22
+last_reviewed: 2026-04-30
 tags: [aquaculture, sustainability]
 ---
 

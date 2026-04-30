@@ -2,10 +2,12 @@
 title: 韌性養殖
 slug: resilient-aquaculture
 type: concept
+date: 2025-05-22
+updated: 2026-04-30
 aliases: [Resilient Aquaculture, 韌性養殖]
 confidence: low
 source_count: 1
-last_reviewed: 2025-05-22
+last_reviewed: 2026-04-30
 tags: [sustainability, risk-management]
 ---
 

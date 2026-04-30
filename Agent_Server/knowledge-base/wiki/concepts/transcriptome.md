@@ -2,10 +2,12 @@
 title: 轉錄體
 slug: transcriptome
 type: concept
+date: 2025-05-22
+updated: 2026-04-30
 aliases: [Transcriptome, 轉錄基因體]
 confidence: low
 source_count: 1
-last_reviewed: 2025-05-22
+last_reviewed: 2026-04-30
 tags: [genomics, molecular-biology]
 ---
 

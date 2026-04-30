@@ -3,6 +3,7 @@ import re
 import yaml
 import hashlib
 import json
+from difflib import SequenceMatcher
 from pathlib import Path
 from datetime import datetime
 
@@ -38,6 +39,9 @@ def calculate_sha256(file_path):
 def jaccard_similarity(str1, str2):
     s1, s2 = set(str1.lower()), set(str2.lower())
     return len(s1 & s2) / len(s1 | s2) if len(s1 | s2) > 0 else 0
+
+def slug_exists(slug):
+    return any(WIKI_DIR.rglob(f"{slug}.md"))
 
 # ─── 核心 Lint 邏輯 ────────────────────────────────────────
 class WikiLint:
@@ -99,7 +103,7 @@ class WikiLint:
                     continue
                 if target not in all_slugs:
                     broken.append(f"- {f.name} -> [[{target}]] (不存在)")
-                if not re.match(r'^[a-z0-9\-]+$', target) and not any('\u4e00' <= c <= '\u9fff' for c in target):
+                if not re.match(r'^[a-z0-9\-]+$', target):
                     format_err.append(f"- {f.name}: [[{target}]] (格式不規範)")
 
         if broken: self.reports.append("### 2. Broken Wikilinks\n" + "\n".join(broken))
@@ -110,7 +114,7 @@ class WikiLint:
         if not index_file.exists(): return
         _, body = parse_md(index_file)
         links = re.findall(r'\[\[(.*?)\]\]', body)
-        missing = [f"- [[{l}]]" for l in links if not (WIKI_DIR.rglob(f"{l}.md"))]
+        missing = [f"- [[{l}]]" for l in links if not slug_exists(l.split('|')[0].strip())]
         if missing: self.reports.append("### 3. Index 一致性錯誤 (索引指向不存在文件)\n" + "\n".join(missing))
 
     def check_4_stub_pages(self):
@@ -127,8 +131,8 @@ class WikiLint:
         slugs = [f.stem for f in self.files if "concepts" in str(f)]
         for i in range(len(slugs)):
             for j in range(i + 1, len(slugs)):
-                sim = jaccard_similarity(slugs[i], slugs[j])
-                if sim > 0.7:
+                sim = SequenceMatcher(None, slugs[i], slugs[j]).ratio()
+                if sim > 0.88:
                     dups.append(f"- {slugs[i]} <-> {slugs[j]} (相似度: {sim:.2f})")
         if dups: self.reports.append("### 5. 近重複概念名稱\n" + "\n".join(dups))
 

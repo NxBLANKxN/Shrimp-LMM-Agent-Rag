@@ -4,6 +4,7 @@ slug: globally-resilient-shrimp-aquaculture
 type: source
 author: Campbell, E. et al.
 date: 2026-02-23
+raw_file: raw/articles/s41538-026-00787-7_reference.pdf
 raw_sha256: 8d44f9dc93aff5eda758206c9499c9a9aa1dc5e36a77a18fcaa19933573553cb
 source_url: https://doi.org/10.1038/s41538-026-00787-7
 possibly_outdated: false

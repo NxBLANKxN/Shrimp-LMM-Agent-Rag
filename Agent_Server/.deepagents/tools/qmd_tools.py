@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+import importlib.util
 from pathlib import Path
 
 from langchain_core.tools import tool
@@ -20,7 +21,18 @@ def _qmd_cmd_base() -> list[str]:
     return [sys.executable, "-m", "qmd"]
 
 
+def _qmd_available() -> bool:
+    return importlib.util.find_spec("qmd") is not None
+
+
 def _run_qmd(args: list[str]) -> subprocess.CompletedProcess[str]:
+    if not _qmd_available():
+        return subprocess.CompletedProcess(
+            args=_qmd_cmd_base() + args,
+            returncode=127,
+            stdout="",
+            stderr="qmd Python module is not installed",
+        )
     # Windows 預設 pipe 解碼常為 cp950，qmd 輸出含 UTF-8/emoji 會炸；子行程也強制 UTF-8 避免其內部 print 失敗
     child_env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     return subprocess.run(
@@ -80,7 +92,10 @@ def qmd_query(question: str) -> str:
         )
 
         if result.returncode != 0:
-            return f"qmd 查詢失敗：{result.stderr or result.stdout}"
+            return (
+                f"qmd 查詢不可用：{result.stderr or result.stdout}。"
+                "請改用 search_wiki 關鍵字搜尋並讀取命中頁面。"
+            )
 
         return result.stdout
 
@@ -98,7 +113,7 @@ def qmd_status(_: str = "") -> str:
     try:
         result = _run_qmd(["collection", "list"])
         if result.returncode != 0:
-            return f"qmd 狀態查詢失敗：{result.stderr or result.stdout}"
+            return f"qmd 狀態查詢不可用：{result.stderr or result.stdout}"
         return result.stdout
 
     except Exception as e:
@@ -114,6 +129,8 @@ def qmd_reindex(_: str = "") -> str:
 
     try:
         collection = _pick_default_collection() or _default_collection_name()
+        if not _qmd_available():
+            return "qmd 重建索引不可用：qmd Python module is not installed"
         wiki_root = Path(ROOT_DIR) / "wiki"
         if not wiki_root.exists():
             return f"qmd 重建索引失敗：找不到 {wiki_root}"

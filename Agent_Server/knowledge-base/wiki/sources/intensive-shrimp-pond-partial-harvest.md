@@ -4,6 +4,7 @@ slug: intensive-shrimp-pond-partial-harvest
 type: source
 author: 黃尚健
 date: 2008-07-01
+raw_file: raw/articles/ntu-97-R95b45010-1.pdf
 raw_sha256: 17c2d8f9ac26b6f4d704506dc60b247ac4dc785afe7f9b0f9a2a79309975f4cc
 source_url: 
 possibly_outdated: true

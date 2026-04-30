@@ -2,10 +2,12 @@
 title: 生產載量
 slug: carrying-capacity
 type: concept
+date: 2025-05-22
+updated: 2026-04-30
 aliases: [Carrying Capacity, 生產負荷]
 confidence: low
 source_count: 1
-last_reviewed: 2025-05-22
+last_reviewed: 2026-04-30
 tags: [ecology, aquaculture]
 ---
 
