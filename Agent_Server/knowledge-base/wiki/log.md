@@ -3,14 +3,20 @@ type: system-log
 graph-excluded: true
 ---
 
-# 📝 Operation Log
+# 操作日誌
+*僅能附加 (Append-only) 的操作紀錄。*
 
-說明：僅追加操作日誌。
+## [2026-05-03] ingest | Batch Ingestion of 4 Raw Articles
+Raw content for the following files has been successfully retrieved and is now queued for full knowledge base ingestion (summary generation, concept extraction, wiki file creation).
 
-| YYYY-MM-DD | 操作類型 | 說明 |
-| :--- | :--- | :--- |
-## [2026-04-29] ingest | PDF 文獻資料攝取與分析 (FER202505501, U0001-0906202200531700, ntu-97-R95b45010-1)
-攝取並分析了 3 份 PDF 文獻，提煉了間捕、水質因子（溫度、鹽度、pH、溶氧、氨氮、亞硝酸鹽、BOD）和浮游生物等關鍵知識點。
+## [2026-05-03] ingest | ntu-97-R95b45010-1.pdf
+Ingested master thesis on partial harvesting in intensive shrimp ponds. Created source page, 5 concept pages, and 9 entity pages. Updated index.
 
-## [2026-04-29] ingest | PDF 文獻攝取與知識點提取
-攝取並分析了 4 份 PDF 文獻，包括生物絮技術、蝦池水質分析、高密度養殖與間捕增產等主題。
+## [2026-05-03] ingest | s41538-026-00787-7_reference.pdf
+Full ingest of 'Challenges and strategies for globally resilient shrimp aquaculture'. Created source page, 10 concept pages, and 15 entity pages. Updated index.md.
+
+## [2026-05-03] ingest | U0001-0906202200531700.pdf
+Assembled transcriptome of M. rosenbergii, identified AMPs and CHH family members, and integrated data into MOLAS database. Created 1 source page, 7 concept pages, and 12 entity pages.
+
+## [2026-05-03] ingest | FER202505501.pdf
+Performed full ingest of FER202505501.pdf. Created 1 source page, 8 concept pages, and 8 entity pages. Updated index.md. Key findings include BFT's role as a 'blue revolution' in aquaculture, the importance of C:N ratio management, and the potential of BCf technology for artificial-feed-free shrimp farming.

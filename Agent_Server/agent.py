@@ -10,32 +10,25 @@ from fastapi import FastAPI, Form, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
-from deepagents import AsyncSubAgent, create_deep_agent
+
+from deepagents import create_deep_agent
+from deepagents.middleware.subagents import SubAgent
 from deepagents.backends.filesystem import FilesystemBackend
 
 # llm-wiki 工具集（透過 sys.path 插入，避免 relative import 問題）
-import sys as _sys
-_sys.path.insert(0, "/opt/Shrimp-LMM-Agent-Rag/Agent_Server/.deepagents/tools")
-from wiki_tools import (
-    read_wiki_file,
-    list_wiki_files,
-    write_wiki_file,
-    append_log,
-    search_wiki,
-    run_lint,
-)
-from qmd_tools import (
-    qmd_query,
-    qmd_status,
-    qmd_reindex,
-)
-
-
+import sys
+sys.path.append(str(Path(__file__).parent / ".deepagents" / "tools"))
+try:
+    from wiki_tools import read_wiki_file, list_wiki_files, write_wiki_file, append_log, search_wiki, run_lint, list_unprocessed_raw_files
+    from qmd_tools import qmd_query, qmd_status, qmd_reindex
+except ImportError as e:
+    print(f"Warning: Failed to import wiki/qmd tools: {e}")
 # ─────────────────────────────────────────────
 # 基本設定
 # ─────────────────────────────────────────────
@@ -49,18 +42,19 @@ WORKSPACE   = f"{ROOT_DIR}/knowledge-base"
 RAW_DIR     = f"{WORKSPACE}/raw"
 
 AGENT_DIR   = ".deepagents/AGENTS.md"
+KNOWLEDGE_BASE = ".deepagents/knowledge-base/AGENTS.md"
 SKILLS_DIR  = ".deepagents/skills/"
 
 
 # raw 子資料夾（自動分類）
 UPLOAD_MAP = {
-    "pdf":        f"{RAW_DIR}/articles",
+    "pdf":        f"{RAW_DIR}/pdfs",
     "image":      f"{RAW_DIR}/images",
-    "video":      f"{RAW_DIR}/videos",
-    "audio":      f"{RAW_DIR}/audio",
-    "excel":      f"{RAW_DIR}/datasets",
-    "csv":        f"{RAW_DIR}/datasets",
-    "doc":        f"{RAW_DIR}/documents",
+    "video":      f"{RAW_DIR}/clippings",
+    "audio":      f"{RAW_DIR}/clippings",
+    "excel":      f"{RAW_DIR}/notes",
+    "csv":        f"{RAW_DIR}/notes",
+    "doc":        f"{RAW_DIR}/articles",
     "code":       f"{RAW_DIR}/notes",
     "text":       f"{RAW_DIR}/notes",
     "unknown":    f"{RAW_DIR}/clippings",
@@ -75,11 +69,19 @@ for path in UPLOAD_MAP.values():
 # ─────────────────────────────────────────────
 # LLM
 # ─────────────────────────────────────────────
+
+"""
 llm = ChatOpenAI(
     base_url=LLAMA_URL,
     api_key="not-needed",
     model=LLAMA_MODEL,
-    temperature=0.0,
+    max_tokens=200000,
+)
+"""
+
+llm = ChatGoogleGenerativeAI(
+    api_key="AIzaSyC7du_mD-m7FSPF8nEGZrj0eevyT0cUJKY",
+    model="gemma-4-31b-it",
     max_tokens=200000,
 )
 
@@ -90,14 +92,36 @@ llm = ChatOpenAI(
 @tool
 def read_pdf_text(file_path: str) -> str:
     """
-    讀取 PDF 純文字內容。
+    讀取 PDF 純文字內容。可以傳入相對路徑或只有檔名，系統會自動在 raw/ 內尋找。
     """
+    
+    # 嘗試幾種可能的位置
+    possible_paths = [
+        Path(ROOT_DIR) / file_path,
+        Path(ROOT_DIR) / "knowledge-base" / "raw" / file_path,
+    ]
+    
+    target_path = None
+    for p in possible_paths:
+        if p.exists() and p.is_file():
+            target_path = p
+            break
+            
+    # 如果還是找不到，嘗試用檔名全域搜尋 knowledge-base/raw
+    if not target_path:
+        raw_root = Path(ROOT_DIR) / "knowledge-base" / "raw"
+        basename = Path(file_path).name
+        for p in raw_root.rglob("*.pdf"):
+            if p.name == basename:
+                target_path = p
+                break
 
-    path = f"{ROOT_DIR}/{file_path}"
+    if not target_path or not target_path.exists():
+        return f"❌ 無法讀取 PDF：找不到檔案 '{file_path}'"
 
     try:
         text = ""
-        with fitz.open(path) as doc:
+        with fitz.open(str(target_path)) as doc:
             for page in doc:
                 text += page.get_text()
 
@@ -107,7 +131,7 @@ def read_pdf_text(file_path: str) -> str:
         return text
 
     except Exception as e:
-        return str(e)
+        return f"❌ 讀取 PDF 發生錯誤：{str(e)}"
 
 @tool
 def overwrite_file(file_path: str, content: str) -> str:
@@ -201,26 +225,70 @@ backend = FilesystemBackend(
     virtual_mode=True
 )
 
+"""
+# 讀取 Wiki 行為契約 (單一真實來源)
+try:
+    with open(f"{WORKSPACE}/CLAUDE.md", "r", encoding="utf-8") as f:
+        wiki_rules = f.read()
+except FileNotFoundError:
+    wiki_rules = ""
+
+system_prompt_text = f
+你是一個專門負責管理 LLM Wiki 知識庫的 AI 管理員（WikiManager）。
+你的唯一職責是精準地執行知識庫的增刪改查操作。請嚴格遵守以下操作規範：
+
+{wiki_rules}
+"""
+
+# ─────────────────────────────────────────────
+# Subagents
+# ─────────────────────────────────────────────
+"""
+wiki_manager: SubAgent = {
+    "name": "WikiManager",
+    "description": "負責管理 LLM Wiki 知識庫，包含文獻攝入 (INGEST)、精準查詢 (QUERY)、綜合整理 (REFLECT) 與健康檢查 (LINT)。當你需要將新的專業知識、檔案內容寫入知識庫，或者需要查閱歷史文獻與概念時，請將詳細的指令交給此代理執行。",
+    "system_prompt": system_prompt_text,
+    "model": llm,
+    "tools": [
+        read_wiki_file,
+        list_wiki_files,
+        list_unprocessed_raw_files,
+        write_wiki_file,
+        append_log,
+        search_wiki,
+        run_lint,
+        qmd_query,
+        qmd_status,
+        qmd_reindex,
+    ]
+}
+"""
 agent = create_deep_agent(
     model=llm,
     backend=backend,
     system_prompt="""
 你是一位專業智慧蝦隻養殖 AI 助手。
+【高度自動化守則】：
+1. **自動建檔 (Auto-INGEST)**：當系統提示使用者上傳了新檔案（如 pdf, doc 等），請你「主動」且「立即」將檔案路徑傳給 WikiManager，命令它執行完整的 INGEST 攝入流程，不要只是單純總結內容。
+2. **自動查庫 (Auto-QUERY)**：當使用者詢問任何專業或事實性問題時，請你「主動」呼叫 WikiManager 進行 QUERY 操作，以便根據我們自己的知識庫來回答，避免幻覺。
+3. **自動批次同步 (Auto-Sync)**：當使用者要求「掃描未處理的檔案」、「整理知識庫」或想要處理所有檔案時，請主動呼叫 WikiManager 使用 `list_unprocessed_raw_files` 找出所有遺漏在 `raw/` 內的檔案，並自動對它們逐一執行 INGEST。
+4. **無縫執行**：你可以直接呼叫 WikiManager 工具，不需要在每次行動前都反問使用者「需要我幫您存入知識庫嗎？」。直接做！
 """,
     skills=[f"./{SKILLS_DIR}"],
-    memory=[f"./{AGENT_DIR}"],
+    memory=[f"./{AGENT_DIR}", f"./{KNOWLEDGE_BASE}"],
+    #subagents=[wiki_manager],
     tools=[
         # ── 原始資料工具 ──
         read_pdf_text,
         overwrite_file,
-        # ── wiki 操作工具（llm-wiki 模式） ──
+        # ── Wiki 工具 ──
         read_wiki_file,
         list_wiki_files,
+        list_unprocessed_raw_files,
         write_wiki_file,
         append_log,
         search_wiki,
         run_lint,
-        # ── 語意搜尋工具（qmd） ──
         qmd_query,
         qmd_status,
         qmd_reindex,
@@ -324,7 +392,11 @@ async def chat(
     prompt = text
 
     if uploaded_paths:
-        prompt += "\n\n已上傳檔案：\n" + "\n".join(uploaded_paths)
+        prompt += "\n\n[系統自動事件] 使用者剛剛上傳了以下檔案：\n" + "\n".join(uploaded_paths)
+        if not text.strip():
+            prompt += "\n(使用者並未輸入文字，請自動呼叫 WikiManager 對上述檔案執行 INGEST 攝入操作。)"
+        else:
+            prompt += "\n(請在處理使用者的文字需求時，同時考慮是否需要呼叫 WikiManager 攝入這些檔案。)"
 
     async def event_gen():
         async for item in stream_agent(

@@ -19,6 +19,7 @@ from langchain_core.tools import tool
 
 # ── 路徑常數（相對於 agent.py 的工作目錄）──────────────────────────
 WIKI_ROOT = Path("./knowledge-base/wiki")
+RAW_ROOT = Path("./knowledge-base/raw")
 LOG_FILE  = WIKI_ROOT / "log.md"
 LINT_SCRIPT = Path("./knowledge-base/scripts/lint.py")
 
@@ -82,6 +83,45 @@ def list_wiki_files(subdir: str = "") -> str:
         return "\n".join(lines) if lines else "（wiki 目錄目前是空的）"
     except Exception as e:
         return f"list_wiki_files 發生錯誤：{e}"
+
+
+# ── 2.5 掃描未處理的 raw 檔案 ─────────────────────────────────────
+@tool
+def list_unprocessed_raw_files() -> str:
+    """
+    掃描 raw/ 目錄下所有的原始檔案，並比對 wiki/sources/ 中的紀錄。
+    回傳所有「尚未被攝入 (INGEST)」的原始檔案路徑清單。
+    適合用來進行批次處理或自動化掃描。
+    """
+    try:
+        if not RAW_ROOT.exists():
+            return "❌ 找不到 raw/ 目錄"
+            
+        all_raw_files = [str(f.relative_to(Path("."))) for f in RAW_ROOT.rglob("*") if f.is_file()]
+        
+        # 讀取已處理的來源
+        processed_raw_files = set()
+        sources_dir = WIKI_ROOT / "sources"
+        if sources_dir.exists():
+            import re
+            for f in sources_dir.rglob("*.md"):
+                try:
+                    content = f.read_text(encoding="utf-8")
+                    match = re.search(r"^raw_file:\s*(.+)$", content, re.MULTILINE)
+                    if match:
+                        val = match.group(1).strip().strip("'\"")
+                        processed_raw_files.add(Path(val).name)
+                except Exception:
+                    pass
+                    
+        unprocessed = [f for f in all_raw_files if Path(f).name not in processed_raw_files]
+        
+        if not unprocessed:
+            return "✅ 所有 raw/ 檔案皆已攝入完成，沒有未處理的檔案。"
+            
+        return "以下是尚未處理的原始檔案（請對它們逐一執行 INGEST）：\n" + "\n".join(unprocessed)
+    except Exception as e:
+        return f"list_unprocessed_raw_files 發生錯誤：{e}"
 
 
 # ── 3. 寫入 wiki 檔案 ────────────────────────────────────────────

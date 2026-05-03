@@ -193,6 +193,7 @@ export default function ChatPage() {
                                             ${m.role === "user" ? "prose-invert" : "dark:prose-invert"}
                                             
                                             /* 表格與代碼容器優化：確保內部可以捲動 */
+                                            prose-headings:text-zinc-900 dark:prose-headings:text-zinc-100
                                             prose-table:w-full prose-table:overflow-x-auto
                                             prose-p:leading-relaxed
                                             prose-pre:bg-zinc-950 prose-pre:border prose-pre:border-zinc-800

@@ -1,41 +1,22 @@
 ---
 type: synthesis
 title: ""
-date: "{{date}}"
+date: ""
 tags: []
 source_count: 0
-confidence: low
+confidence: medium
 ---
 
-# {{title}}
+## 論點 (Thesis)
 
-## Thesis
+## 證據 (Evidence)
 
-> 用 1–2 句話陳述本次合成的核心論點。
+## 反面證據 (Counter-evidence)
 
-## Evidence
+## 綜合分析 (Synthesis)
 
-- [[source-slug-here]]：支撐論點的關鍵依據。
+## 信心備註 (Confidence Notes)
 
-## Counter-evidence
+## 局限性 (Limitations)
 
-> Stage 0 反向檢驗結果。若無反對來源，必須標注：
-> ⚠ 回音室風險：未找到反驳来源，结论可能存在確認偏差。
-
--
-
-## Synthesis
-
-> 綜合正反證據後的整合性分析。
-
-## Confidence Notes
-
-> 說明本次合成的置信度基礎與限制條件。
-
-## Limitations
-
--
-
-## Sources
-
-- [[source-slug-here]]
+## 來源 (Sources)
