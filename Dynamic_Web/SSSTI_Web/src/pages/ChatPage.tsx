@@ -251,7 +251,7 @@ export default function ChatPage() {
                     <div className="flex items-end gap-1 p-2">
                         <label className="p-3 text-zinc-400 hover:text-blue-500 cursor-pointer transition-colors shrink-0">
                             <Paperclip size={20} />
-                            <input type="file" multiple className="hidden" onChange={(e) => e.target.files && setFiles(prev => [...prev, ...Array.from(e.target.files!)])} />
+                            <input type="file" multiple className="hidden" value="" onChange={(e) => e.target.files && setFiles(prev => [...prev, ...Array.from(e.target.files!)])} />
                         </label>
 
                         <textarea

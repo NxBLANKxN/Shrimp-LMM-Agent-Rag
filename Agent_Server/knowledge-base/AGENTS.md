@@ -124,4 +124,4 @@ Stage 3（Gap Analysis）：
 以下檔案的 frontmatter 必須含 `graph-excluded: true`：`log.md`, `index.md`, `overview.md`, `QUESTIONS.md`, `outputs/` 下所有檔案。
 
 # 文檔維護規則
-當 `CLAUDE.md` 規則更新時，同步更新 `USER_GUIDE.md` 對應章節，確保兩份文件一致。
+當 `AGENTS.md` 規則更新時，同步更新 `USER_GUIDE.md` 對應章節，確保兩份文件一致。

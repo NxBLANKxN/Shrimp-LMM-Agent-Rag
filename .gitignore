@@ -1,9 +1,9 @@
 .venv
 gemma-4-*
-video
 __pycache__
 .env
 user.db
 uploads/*
 data/*
 llama.cpp
+*.mp4

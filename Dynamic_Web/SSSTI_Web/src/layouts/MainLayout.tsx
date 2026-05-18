@@ -25,7 +25,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         <Sidebar open={open} onClose={() => setOpen(false)} />
 
 
-        <main className="flex-1 bg-background flex flex-col min-h-0 overflow-hidden">
+        <main className="flex-1 bg-background flex flex-col min-h-0 overflow-y-auto">
           {children}
         </main>
 
