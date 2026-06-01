@@ -101,7 +101,7 @@ def _extract_frames(video_path: Path, max_frames: int) -> tuple[float, list[tupl
 
 
 @tool
-def analyze_video(file_path: str, max_frames: int = 12, question: str = "") -> str:
+def analyze_video(file_path: str, max_frames: int = 100, question: str = "") -> str:
     """
     分析影片內容。使用 OpenCV 從影片中均勻擷取關鍵幀，並將所有畫面一次性投放給視覺語言模型。
     模型將結合時間軸與多張畫面，進行連續性的狀態追蹤、異常診斷並產出摘要報告。
@@ -109,7 +109,7 @@ def analyze_video(file_path: str, max_frames: int = 12, question: str = "") -> s
 
     Args:
         file_path (str): 影片的相對路徑或純檔名，系統會自動搜尋。
-        max_frames (int): 最多擷取的關鍵幀數量，預設 12 幀（建議範圍 4-12 幀以維持推理速度）。
+        max_frames (int): 最多擷取的關鍵幀數量，預設 100 幀（建議範圍 100-200 幀以維持推理速度）。
         question (str):   想針對影片詢問的具體問題（如：蝦子活動力、設備是否有黃燈閃爍）；空白則做通用摘要。
 
     Returns:
