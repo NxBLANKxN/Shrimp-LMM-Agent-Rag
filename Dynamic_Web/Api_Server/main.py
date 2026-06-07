@@ -108,7 +108,7 @@ def init_db():
         default_members = [
             ("吳竣霆", "基佬開發者", 
              "負責系統架構設計與前後端開發。", 
-             "http://127.0.0.1:8000/uploads/monkey-thinking.png", 
+             "http://127.0.0.1:8000/uploads/chicken.jpg", 
              admin_id),
             ("毛柏竣", "簡報製作", 
              "專注簡報的製作。", 
